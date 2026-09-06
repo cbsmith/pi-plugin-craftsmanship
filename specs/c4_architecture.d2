@@ -1,0 +1,81 @@
+# Code-Generated C4 System Context Diagram for Pi Craftsmanship Plugin
+direction: right
+
+user: Software Engineer / Human Reviewer {
+  shape: person
+  style.fill: "#084298"
+  style.font-color: "#ffffff"
+}
+
+pi_agent: Pi Coding Agent Runtime {
+  shape: rectangle
+  style.fill: "#1168bd"
+  style.font-color: "#ffffff"
+}
+
+craft_plugin: Pi Craftsmanship Plugin {
+  shape: rectangle
+  style.fill: "#2b78e4"
+  style.font-color: "#ffffff"
+}
+
+project_store: Project State Store (.craftsmanship/state.json) {
+  shape: cylinder
+  style.fill: "#666666"
+  style.font-color: "#ffffff"
+}
+
+user -> pi_agent: Invokes commands (/craft-status, /craft-slice-review, /craft-skip)
+pi_agent -> craft_plugin: Triggers tool execution & before_tool_call hooks
+craft_plugin -> project_store: Reads/writes quality gate phase state & objections
+
+# Code-Generated C4 Container Diagram
+direction: down
+
+container_hooks: Event Lifecycle Hooks (Hard Gate Interceptors) {
+  shape: class
+}
+
+container_engine: Quality Gate State Machine Engine {
+  shape: class
+}
+
+container_panels: Dialectic Review Panels & Formal Verification {
+  shape: class
+}
+
+container_hooks -> container_engine: Asserts phase eligibility (blocks premature writes)
+container_engine -> container_panels: Runs BDD, C4 AST, Alloy/TLA+, and 7-Lens reviews
+
+# Code-Generated C4 Component Diagram
+class QualityGateEngine {
+  + getState(): QualityGateState
+  + canTransitionTo(phase): CheckResult
+  + recordExemption(exemption): void
+  + recordHumanSliceReview(record): void
+}
+
+class BDDEngine {
+  + analyzeAcceptanceCriteria(): Question[]
+  + buildGherkinFeature(): string
+}
+
+class SystemDesignEngine {
+  + generateC4FromCode(): C4DiagramSpec
+  + generateFormalModels(): FormalModelSpec
+  + verifyArchitecturalDrift(): DriftReport
+}
+
+class ArchitectureGovernanceEngine {
+  + createADR(): ADRRecord
+  + evaluateRFCPanel(): RFCRecord
+}
+
+class PostImplementationCodeReviewPanel {
+  + runReview(): FinalCodeReviewResult
+}
+
+QualityGateEngine -> BDDEngine: Tracks BDD specs
+QualityGateEngine -> SystemDesignEngine: Validates C4 & Formal Models
+QualityGateEngine -> ArchitectureGovernanceEngine: Verifies ADRs & RFCs
+QualityGateEngine -> PostImplementationCodeReviewPanel: Validates 7 Dialectic Lenses
