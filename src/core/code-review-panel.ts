@@ -1,13 +1,15 @@
-import { CodeReviewLensScore, FinalCodeReviewResult, QualityGateState, StaticAnalysisDiagnostics } from "../types";
+import { ArchitecturalDriftReport, DialecticObjection, DialecticReviewResult, FinalCodeReviewResult, QualityGateState, StaticAnalysisDiagnostics } from "../types";
+import { SystemDesignEngine } from "./system-design";
 
 export class PostImplementationCodeReviewPanel {
   public runReview(
     codeContent: string,
     testContent: string,
     state: QualityGateState,
-    staticAnalysisOutput?: string
+    staticAnalysisOutput?: string,
+    sourceFiles: string[] = []
   ): FinalCodeReviewResult {
-    // 1. Process Static Analysis Diagnostics
+    // 1. Static Analysis Diagnostics
     const staticAnalysis: StaticAnalysisDiagnostics = {
       lintErrors: 0,
       lintWarnings: 0,
@@ -30,102 +32,126 @@ export class PostImplementationCodeReviewPanel {
       }
     }
 
-    const lenses: CodeReviewLensScore[] = [];
+    // 2. Architectural Drift Guard Inspection
+    const design = new SystemDesignEngine(process.cwd());
+    const driftReport: ArchitecturalDriftReport = design.verifyArchitecturalDrift(state.sliceName || "CoreSystem", sourceFiles);
+
+    // 3. Dialectic Review Objections (7 Lenses)
+    const objections: DialecticObjection[] = [];
 
     // Lens 1: Security
-    const hasEval = codeContent.includes("eval(") || codeContent.includes("exec(");
-    const hasUncheckedInnerHtml = codeContent.includes("innerHTML");
-    const securityScore = hasEval || hasUncheckedInnerHtml ? 60 : 95;
+    if (codeContent.includes("eval(") || codeContent.includes("exec(")) {
+      objections.push({
+        id: "REV-OBJ-SEC-01",
+        lens: "Security",
+        severity: "BLOCKER",
+        title: "Dynamic Code Execution Hazard Detected",
+        critique: "Implementation contains dynamic code evaluation (eval/exec), exposing serious remote code execution vulnerabilities.",
+        requiredAction: "Remove dynamic evaluation and replace with safe static handlers.",
+        addressed: false,
+      });
+    }
 
-    lenses.push({
-      lens: "SECURITY",
-      score: securityScore,
-      passed: securityScore >= 80,
-      critique: securityScore < 80 ? "Detected dynamic code execution or unsafe DOM injection risk." : "Code adheres to secure coding standards.",
-      actionItems: securityScore < 80 ? ["Remove dangerous dynamic execution calls.", "Sanitize external inputs before DOM rendering."] : [],
-    });
-
-    // Lens 2: Simplicity
+    // Lens 2: Simplicity (< 400 LOC)
     const lineCount = codeContent.split("\n").length;
-    const simplicityScore = lineCount <= 400 ? 92 : 70;
-
-    lenses.push({
-      lens: "SIMPLICITY",
-      score: simplicityScore,
-      passed: simplicityScore >= 80,
-      critique: simplicityScore >= 80 ? `Implementation is concise (${lineCount} LOC, target <400 LOC).` : `Implementation exceeds 400 LOC (${lineCount} LOC). Decompose into smaller modules.`,
-      actionItems: simplicityScore < 80 ? ["Decompose large functions/classes into focused helper modules."] : [],
-    });
+    if (lineCount > 400) {
+      objections.push({
+        id: "REV-OBJ-SIMP-01",
+        lens: "Simplicity",
+        severity: "BLOCKER",
+        title: "Module Exceeds 400 LOC Limit",
+        critique: `Implementation is ${lineCount} lines of code, violating the mandatory <400 LOC per slice constraint.`,
+        requiredAction: "Refactor module by extracting helper classes into separate sub-files.",
+        addressed: false,
+      });
+    }
 
     // Lens 3: Efficiency
-    const hasNestedLoops = (codeContent.match(/for\s*\(.*for\s*\(/g) || []).length > 0;
-    const efficiencyScore = hasNestedLoops ? 75 : 90;
-
-    lenses.push({
-      lens: "EFFICIENCY",
-      score: efficiencyScore,
-      passed: efficiencyScore >= 80,
-      critique: hasNestedLoops ? "Detected nested loops with potential O(N^2) complexity." : "Algorithmic complexity and resource allocation are efficient.",
-      actionItems: hasNestedLoops ? ["Refactor nested loops to use lookup maps or index structures for O(N) execution."] : [],
-    });
+    if ((codeContent.match(/for\s*\(.*for\s*\(/g) || []).length > 0) {
+      objections.push({
+        id: "REV-OBJ-EFF-01",
+        lens: "Efficiency",
+        severity: "MAJOR",
+        title: "Nested Iteration Traps O(N^2) Complexity",
+        critique: "Detected nested loops which degrade performance on large data collections.",
+        requiredAction: "Refactor nested loops using lookup maps for O(N) linear performance.",
+        addressed: false,
+      });
+    }
 
     // Lens 4: Adherence to Design / Formal Models / C4 Diagrams
-    const hasADRs = state.adrs.length > 0;
-    const hasC4 = !!state.c4Spec;
-    const hasFormal = !!state.formalModel;
-    const adherenceScore = hasADRs && hasC4 && hasFormal ? 95 : 70;
+    if (!state.c4Spec || !state.formalModel || state.adrs.length === 0) {
+      objections.push({
+        id: "REV-OBJ-ADH-01",
+        lens: "Adherence to Design",
+        severity: "BLOCKER",
+        title: "Incomplete Design Artifact Traceability",
+        critique: "Code implementation lacks underlying C4 D2 diagrams, Alloy/TLA+ formal specifications, or ADR records.",
+        requiredAction: "Complete design artifacts in specs/ and docs/ before finalizing review.",
+        addressed: false,
+      });
+    }
 
-    lenses.push({
-      lens: "ADHERENCE_TO_DESIGN",
-      score: adherenceScore,
-      passed: adherenceScore >= 80,
-      critique: adherenceScore >= 80 ? "Implementation strictly conforms to C4 D2 diagrams, Alloy/TLA+ formal models, and ADR decisions." : "Incomplete architectural design trace detected.",
-      actionItems: adherenceScore < 80 ? ["Ensure code structure matches C4 component diagrams and respects TLA+ invariants."] : [],
-    });
+    if (driftReport.hasDrift) {
+      objections.push({
+        id: "REV-OBJ-DRIFT-01",
+        lens: "Adherence to Design",
+        severity: "BLOCKER",
+        title: "Architectural Drift Detected",
+        critique: `Source code introduced un-documented architectural changes: ${driftReport.undocumentedChanges.join("; ")}`,
+        requiredAction: "Update C4 diagrams and record an ADR documenting architectural changes.",
+        addressed: false,
+      });
+    }
 
     // Lens 5: Test Quality
-    const mutationPassed = state.mutationResult?.passedThreshold ?? false;
-    const testScore = mutationPassed ? 94 : 65;
-
-    lenses.push({
-      lens: "TEST_QUALITY",
-      score: testScore,
-      passed: testScore >= 80,
-      critique: mutationPassed ? "Tests passed BDD RED/GREEN TDD cycles and met the >=85% mutation test threshold." : "Mutation test kill rate was insufficient or TDD cycle incomplete.",
-      actionItems: mutationPassed ? [] : ["Improve unit test assertion density to kill surviving mutants."],
-    });
+    if (!state.mutationResult || !state.mutationResult.passedThreshold) {
+      objections.push({
+        id: "REV-OBJ-TEST-01",
+        lens: "Test Quality",
+        severity: "BLOCKER",
+        title: "Mutation Test Kill Rate Below 85% Threshold",
+        critique: `Current mutant kill rate is ${state.mutationResult?.killRatePercent || 0}%, below the required 85% threshold.`,
+        requiredAction: "Add targeted unit test assertions to kill surviving mutants.",
+        addressed: false,
+      });
+    }
 
     // Lens 6: Elegance / Separation of Concerns
-    const eleganceScore = 90;
-    lenses.push({
-      lens: "ELEGANCE_SOC",
-      score: eleganceScore,
-      passed: eleganceScore >= 80,
-      critique: "Clear separation of concerns between domain logic, data persistence, and interface layers.",
-      actionItems: [],
-    });
-
     // Lens 7: Consistency
-    const consistencyScore = staticAnalysis.typeErrors === 0 && staticAnalysis.lintErrors === 0 ? 95 : 70;
-    lenses.push({
-      lens: "CONSISTENCY",
-      score: consistencyScore,
-      passed: consistencyScore >= 80,
-      critique: consistencyScore >= 80 ? "Code style, types, and formatting are strictly consistent." : `Detected ${staticAnalysis.typeErrors} type errors and ${staticAnalysis.lintErrors} lint errors.`,
-      actionItems: consistencyScore < 80 ? ["Fix compiler type errors and linter diagnostic warnings."] : [],
-    });
+    if (staticAnalysis.typeErrors > 0 || staticAnalysis.lintErrors > 0) {
+      objections.push({
+        id: "REV-OBJ-CONS-01",
+        lens: "Consistency",
+        severity: "BLOCKER",
+        title: "Static Analysis Linter / Type Errors",
+        critique: `Detected ${staticAnalysis.typeErrors} type error(s) and ${staticAnalysis.lintErrors} lint error(s).`,
+        requiredAction: "Fix compiler type errors and linter diagnostic warnings.",
+        addressed: false,
+      });
+    }
 
-    const passed = lenses.every((l) => l.passed) && staticAnalysis.typeErrors === 0 && staticAnalysis.lintErrors === 0;
+    const blockerCount = objections.filter((o) => o.severity === "BLOCKER" && !o.addressed).length;
+    const majorCount = objections.filter((o) => o.severity === "MAJOR" && !o.addressed).length;
 
-    const summary = passed
-      ? "CONGRATULATIONS: All 7 multi-lens code review quality gates passed! Static analysis clean. Code is ready for merge."
-      : "CODE REVIEW REJECTED: One or more multi-lens review criteria or static analysis checks failed. Address action items.";
+    const passed = blockerCount === 0 && majorCount === 0 && !driftReport.hasDrift;
+
+    const dialecticReview: DialecticReviewResult = {
+      passed,
+      objections,
+      summary: passed
+        ? "DIALECTIC POST-IMPLEMENTATION CODE REVIEW PASSED: All 7 lenses & static analysis clean!"
+        : `DIALECTIC CODE REVIEW REJECTED: Found ${blockerCount} BLOCKER objection(s) and ${majorCount} MAJOR objection(s).`,
+      reReviewRequired: !passed,
+      iterationCount: 1,
+    };
 
     return {
       passed,
       staticAnalysis,
-      lenses,
-      summary,
+      dialecticReview,
+      driftReport,
+      summary: dialecticReview.summary,
     };
   }
 }

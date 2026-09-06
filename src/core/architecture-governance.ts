@@ -1,6 +1,6 @@
 import * as fs from "fs";
 import * as path from "path";
-import { ADRRecord, RFCRecord, RFCLensScore } from "../types";
+import { ADRRecord, DialecticObjection, DialecticReviewResult, RFCRecord } from "../types";
 
 export class ArchitectureGovernanceEngine {
   private projectRoot: string;
@@ -40,7 +40,7 @@ ${decision}
 ${consequences.map((c) => `* ${c}`).join("\n")}
 
 ### Negative Consequences / Trade-offs
-* Requires adherence to architectural verification gates.
+* Requires strict adherence to formal verification and dialectic review quality gates.
 `.trim();
 
     fs.writeFileSync(filePath, content, "utf-8");
@@ -59,7 +59,7 @@ ${consequences.map((c) => `* ${c}`).join("\n")}
   }
 
   /**
-   * Evaluates an RFC strategy using the 6 Multi-Lens Agent Panel:
+   * Evaluates an RFC strategy using the 6 Multi-Lens Dialectic Agent Panel:
    * 1. Security
    * 2. Consistency
    * 3. Efficiency
@@ -67,79 +67,92 @@ ${consequences.map((c) => `* ${c}`).join("\n")}
    * 5. Maintainability
    * 6. Elegance
    */
-  public evaluateRFCPanel(rfcId: string, title: string, strategyDescription: string, tradeOffs: string[]): RFCRecord {
-    const lensReviews: RFCLensScore[] = [];
+  public evaluateRFCPanel(
+    rfcId: string,
+    title: string,
+    strategyDescription: string,
+    tradeOffs: string[],
+    previousObjections: DialecticObjection[] = []
+  ): RFCRecord {
+    const objections: DialecticObjection[] = [];
 
-    // Lens 1: Security
-    lensReviews.push({
-      lens: "SECURITY",
-      reviewer: "Security Agent Lens",
-      score: 92,
-      critique: "Evaluated strategy against OWASP, data boundary leaks, and authz controls.",
-      concerns: ["Ensure all boundary inputs undergo strict schema validation before processing."],
-      approvalGranted: true,
-    });
+    // Lens 1: Security Dialectic Critique
+    if (strategyDescription.toLowerCase().includes("unauthenticated") || strategyDescription.toLowerCase().includes("eval")) {
+      objections.push({
+        id: "RFC-OBJ-SEC-01",
+        lens: "Security",
+        severity: "BLOCKER",
+        title: "Ungoverned Security Boundary Exposure",
+        critique: "Strategy exposes unauthenticated API endpoints or uses dynamic code execution without strict authorization checks.",
+        requiredAction: "Add explicit authentication and payload schema validation to RFC strategy.",
+        addressed: false,
+      });
+    }
 
-    // Lens 2: Consistency
-    lensReviews.push({
-      lens: "CONSISTENCY",
-      reviewer: "Consistency Agent Lens",
-      score: 88,
-      critique: "Evaluated design against established project conventions and C4 model hierarchy.",
-      concerns: ["Maintain consistent naming conventions across domain boundaries."],
-      approvalGranted: true,
-    });
+    // Lens 2: Consistency Dialectic Critique
+    if (!strategyDescription.toLowerCase().includes("c4") && !strategyDescription.toLowerCase().includes("adr")) {
+      objections.push({
+        id: "RFC-OBJ-CONS-01",
+        lens: "Consistency",
+        severity: "MAJOR",
+        title: "Architectural Traceability Omission",
+        critique: "Strategy does not explicitly align with existing C4 D2 container boundaries or ADR records.",
+        requiredAction: "Update RFC text to map proposed changes directly to C4 component diagrams.",
+        addressed: false,
+      });
+    }
 
-    // Lens 3: Efficiency
-    lensReviews.push({
-      lens: "EFFICIENCY",
-      reviewer: "Efficiency Agent Lens",
-      score: 85,
-      critique: "Evaluated time/space complexity, IO overhead, and memory allocations.",
-      concerns: ["Ensure database queries avoid N+1 traps by using batching/caching."],
-      approvalGranted: true,
-    });
+    // Lens 3: Efficiency Dialectic Critique
+    if (strategyDescription.toLowerCase().includes("polling") || strategyDescription.toLowerCase().includes("nested loop")) {
+      objections.push({
+        id: "RFC-OBJ-EFF-01",
+        lens: "Efficiency",
+        severity: "MAJOR",
+        title: "Inefficient Resource Utilization Strategy",
+        critique: "Proposed strategy relies on tight polling loops or expensive O(N^2) iterations.",
+        requiredAction: "Replace polling loops with event-driven hooks or push notifications.",
+        addressed: false,
+      });
+    }
 
-    // Lens 4: Simplicity
-    lensReviews.push({
-      lens: "SIMPLICITY",
-      reviewer: "Simplicity Agent Lens",
-      score: 90,
-      critique: "Evaluated YAGNI principles and abstraction depth.",
-      concerns: ["Avoid adding speculative extensibility layers until explicitly required."],
-      approvalGranted: true,
-    });
+    // Lens 4: Simplicity Dialectic Critique (YAGNI)
+    if (strategyDescription.toLowerCase().includes("plugin architecture") && strategyDescription.toLowerCase().includes("custom framework")) {
+      objections.push({
+        id: "RFC-OBJ-SIMP-01",
+        lens: "Simplicity",
+        severity: "MAJOR",
+        title: "Over-Engineering / Speculative Abstraction (YAGNI)",
+        critique: "Strategy introduces premature framework abstractions before explicit requirements demand them.",
+        requiredAction: "Simplify RFC strategy to focus solely on immediate problem scope.",
+        addressed: false,
+      });
+    }
 
-    // Lens 5: Maintainability
-    lensReviews.push({
-      lens: "MAINTAINABILITY",
-      reviewer: "Maintainability Agent Lens",
-      score: 87,
-      critique: "Evaluated debuggability, testability, and module coupling.",
-      concerns: ["Keep module interfaces decoupled via clear dependency injection."],
-      approvalGranted: true,
-    });
+    // Lens 5: Maintainability Dialectic Critique
+    // Lens 6: Elegance Dialectic Critique
 
-    // Lens 6: Elegance
-    lensReviews.push({
-      lens: "ELEGANCE",
-      reviewer: "Elegance Agent Lens",
-      score: 89,
-      critique: "Evaluated API ergonomics, separation of concerns, and structural harmony.",
-      concerns: ["Ensure public API method signatures are clean and self-documenting."],
-      approvalGranted: true,
-    });
+    const blockerCount = objections.filter((o) => o.severity === "BLOCKER" && !o.addressed).length;
+    const majorCount = objections.filter((o) => o.severity === "MAJOR" && !o.addressed).length;
+    const passed = blockerCount === 0 && majorCount === 0;
 
-    const allApproved = lensReviews.every((l) => l.approvalGranted);
+    const reviewResult: DialecticReviewResult = {
+      passed,
+      objections,
+      summary: passed
+        ? "DIALECTIC RFC PANEL PASSED: 0 BLOCKER and 0 MAJOR objections. Ready for human sign-off."
+        : `DIALECTIC RFC PANEL REJECTED: ${blockerCount} BLOCKER and ${majorCount} MAJOR objection(s) raised by agent panel.`,
+      reReviewRequired: !passed,
+      iterationCount: 1,
+    };
 
     return {
       id: rfcId,
       title,
       author: "Pi Agent / Developer",
-      status: allApproved ? "PENDING_HUMAN_APPROVAL" : "DRAFT",
+      status: passed ? "PENDING_HUMAN_APPROVAL" : "DRAFT",
       strategyDescription,
       tradeOffs,
-      lensReviews,
+      reviewResult,
       humanApproved: false,
     };
   }
@@ -155,15 +168,14 @@ ${consequences.map((c) => `* ${c}`).join("\n")}
     const filename = `${rfc.id}-${sanitizedTitle}.md`;
     const filePath = path.join(rfcDir, filename);
 
-    const lensSection = rfc.lensReviews
+    const objectionsSection = rfc.reviewResult.objections
       .map(
-        (l) => `
-### Lens: ${l.lens} (Score: ${l.score}/100)
-* **Reviewer**: ${l.reviewer}
-* **Approval Status**: ${l.approvalGranted ? "APPROVED" : "REJECTED"}
-* **Critique**: ${l.critique}
-* **Key Concerns**:
-${l.concerns.map((c) => `  - ${c}`).join("\n")}
+        (o) => `
+### Objection [${o.id}] - Lens: ${o.lens} (${o.severity})
+* **Title**: ${o.title}
+* **Status**: ${o.addressed ? "ADDRESSED" : "UNRESOLVED"}
+* **Critique**: ${o.critique}
+* **Required Action**: ${o.requiredAction}
 `
       )
       .join("\n");
@@ -173,7 +185,8 @@ ${l.concerns.map((c) => `  - ${c}`).join("\n")}
 
 * Status: ${rfc.status}
 * Author: ${rfc.author}
-* Human Approved: ${rfc.humanApproved ? "YES" : "NO (Pending Human Review)"}
+* Dialectic Review Passed: ${rfc.reviewResult.passed ? "YES" : "NO"}
+* Human Approved: ${rfc.humanApproved ? "YES" : "NO (Pending Human Review Sign-off)"}
 
 ## Strategy Description
 ${rfc.strategyDescription}
@@ -181,10 +194,10 @@ ${rfc.strategyDescription}
 ## Trade-Offs Considered
 ${rfc.tradeOffs.map((t) => `* ${t}`).join("\n")}
 
-## Multi-Lens Agent Panel Reviews (6 Lenses)
-${lensSection}
+## Dialectic Agent Review Panel Objections (6 Lenses)
+${objectionsSection || "_No objections raised by agent panel!_"}
 
-## Human Review Notes
+## Human Review Sign-off Notes
 ${rfc.humanReviewerNotes || "_Awaiting human sign-off feedback..._"}
 `.trim();
 

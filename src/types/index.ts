@@ -14,6 +14,27 @@ export type WorkflowPhase =
   | "MULTI_LENS_CODE_REVIEW"
   | "COMPLETED_LOCKED";
 
+export type SeverityLevel = "BLOCKER" | "MAJOR" | "MINOR";
+
+export interface DialecticObjection {
+  id: string;
+  lens: string; // e.g. "Security", "Simplicity", "Acceptance Criteria", etc.
+  severity: SeverityLevel;
+  title: string;
+  critique: string;
+  requiredAction: string;
+  addressed: boolean;
+  resolutionNotes?: string;
+}
+
+export interface DialecticReviewResult {
+  passed: boolean; // passed if 0 BLOCKER and 0 unaddressed MAJOR objections
+  objections: DialecticObjection[];
+  summary: string;
+  reReviewRequired: boolean;
+  iterationCount: number;
+}
+
 export interface GherkinScenario {
   id: string;
   title: string;
@@ -43,14 +64,6 @@ export interface BDDFeatureSpec {
   redOutput?: string;
 }
 
-export interface TestReviewLensScore {
-  lens: "ACCEPTANCE_CRITERIA" | "EDGE_CASES" | "FLAKINESS_RISK" | "FIXTURES_AND_CLOSURES";
-  score: number; // 0 - 100
-  passed: boolean;
-  critique: string;
-  recommendations: string[];
-}
-
 export interface SliceDecompositionResult {
   sliceName: string;
   estimatedLOC: number;
@@ -58,11 +71,16 @@ export interface SliceDecompositionResult {
   sliceComponents: string[];
 }
 
-export interface MultiLensTestReviewResult {
-  passed: boolean;
-  lenses: TestReviewLensScore[];
-  sliceDecomposition: SliceDecompositionResult;
-  overallCritique: string;
+export interface FormalCounterexampleTrace {
+  invariantViolated: string;
+  stateTrace: Array<{ step: number; stateName: string; variables: Record<string, any> }>;
+  rawOutput: string;
+}
+
+export interface FormalCompletenessEvaluation {
+  isComplete: boolean;
+  unmodeledStateTransitions: string[];
+  critique: string;
 }
 
 export interface C4DiagramSpec {
@@ -70,15 +88,17 @@ export interface C4DiagramSpec {
   containerD2: string;
   componentD2: string;
   codeD2: string;
-  isValidD2Syntax: boolean;
+  generatedFromCode: boolean;
 }
 
 export interface FormalModelSpec {
   alloyModel: string; // .als content
   tlaModule: string; // .tla content
   tlaConfig: string; // .cfg content
-  propertyTestSpec: string; // Property-based test spec
+  propertyTestSpec: string; // Stateful fast-check property test spec
   invariants: string[];
+  completenessEvaluation: FormalCompletenessEvaluation;
+  counterexample?: FormalCounterexampleTrace;
   provedAbstractly: boolean;
 }
 
@@ -92,15 +112,6 @@ export interface ADRRecord {
   date: string;
 }
 
-export interface RFCLensScore {
-  lens: "SECURITY" | "CONSISTENCY" | "EFFICIENCY" | "SIMPLICITY" | "MAINTAINABILITY" | "ELEGANCE";
-  reviewer: string; // e.g. "Security Agent Lens"
-  score: number; // 0 - 100
-  critique: string;
-  concerns: string[];
-  approvalGranted: boolean;
-}
-
 export interface RFCRecord {
   id: string; // e.g. "RFC-0001"
   title: string;
@@ -108,18 +119,27 @@ export interface RFCRecord {
   status: "DRAFT" | "UNDER_MULTI_LENS_REVIEW" | "PENDING_HUMAN_APPROVAL" | "APPROVED" | "REJECTED";
   strategyDescription: string;
   tradeOffs: string[];
-  lensReviews: RFCLensScore[];
+  reviewResult: DialecticReviewResult;
   humanReviewerNotes?: string;
   humanApproved?: boolean;
+}
+
+export interface AutoTDDResult {
+  redVerified: boolean;
+  greenVerified: boolean;
+  iterations: number;
+  testFailureTrace?: string;
+  passedCleanly: boolean;
 }
 
 export interface TDDCycleState {
   unitTestFilePath: string;
   implementationFilePath: string;
-  redVerified: boolean; // Test failed before code was written
+  redVerified: boolean;
   redFailureMessage?: string;
-  greenVerified: boolean; // Test passed after code was written
+  greenVerified: boolean;
   greenOutput?: string;
+  autoTddIterations?: number;
 }
 
 export interface MutationTestResult {
@@ -131,6 +151,14 @@ export interface MutationTestResult {
   mutantDetails: Array<{ mutantId: string; file: string; line: number; mutation: string; status: "KILLED" | "SURVIVED" }>;
 }
 
+export interface ArchitecturalDriftReport {
+  hasDrift: boolean;
+  detectedComponents: string[];
+  detectedDependencies: Array<{ from: string; to: string }>;
+  undocumentedChanges: string[];
+  updatedD2Diagram: string;
+}
+
 export interface StaticAnalysisDiagnostics {
   lintErrors: number;
   lintWarnings: number;
@@ -139,32 +167,27 @@ export interface StaticAnalysisDiagnostics {
   toolOutputs: Record<string, string>;
 }
 
-export interface CodeReviewLensScore {
-  lens: "SECURITY" | "SIMPLICITY" | "EFFICIENCY" | "ADHERENCE_TO_DESIGN" | "TEST_QUALITY" | "ELEGANCE_SOC" | "CONSISTENCY";
-  score: number; // 0 - 100
-  critique: string;
-  actionItems: string[];
-  passed: boolean;
-}
-
 export interface FinalCodeReviewResult {
   passed: boolean;
   staticAnalysis: StaticAnalysisDiagnostics;
-  lenses: CodeReviewLensScore[];
+  dialecticReview: DialecticReviewResult;
+  driftReport: ArchitecturalDriftReport;
   summary: string;
 }
 
 export interface QualityGateState {
   currentPhase: WorkflowPhase;
   sliceName: string;
+  hardGateEnforced: boolean;
   bddSpec?: BDDFeatureSpec;
-  testReview?: MultiLensTestReviewResult;
+  testReview?: DialecticReviewResult & { sliceDecomposition: SliceDecompositionResult };
   c4Spec?: C4DiagramSpec;
   formalModel?: FormalModelSpec;
   adrs: ADRRecord[];
   rfcs: RFCRecord[];
   tddCycles: TDDCycleState[];
   mutationResult?: MutationTestResult;
+  driftReport?: ArchitecturalDriftReport;
   finalReview?: FinalCodeReviewResult;
 }
 

@@ -9,12 +9,12 @@ export function registerHooks(pi: ExtensionAPI): void {
     const state = qEngine.getState();
 
     ctx.ui.notify(
-      `Craftsmanship Plugin active. Current Phase: ${state.currentPhase} (Slice: ${state.sliceName})`,
+      `Craftsmanship Plugin Active (HARD GATES ENFORCED). Current Phase: ${state.currentPhase} (Slice: ${state.sliceName})`,
       "info"
     );
   });
 
-  // Event Hook 2: Intercept Tool Calls (Gate Enforcement)
+  // Event Hook 2: Hard Gate Interception Hook
   pi.on("before_tool_call", async (event: any, ctx: ExtensionContext) => {
     const toolName = event.name || event.toolName;
     const args = event.parameters || event.args || {};
@@ -33,9 +33,11 @@ export function registerHooks(pi: ExtensionAPI): void {
         const check = qEngine.canTransitionTo("TDD_UNIT_RED_GREEN");
 
         if (!check.allowed) {
-          ctx.ui.notify(
-            `CRAFTSMANSHIP QUALITY GATE WARNING: Attempting to write implementation code before completing preliminary design/review phases. ${check.reason}`,
-            "warning"
+          ctx.ui.notify(`HARD QUALITY GATE BLOCKED: ${check.reason}`, "error");
+
+          // HARD GATE ENFORCEMENT: Throw error to reject tool call execution
+          throw new Error(
+            `[CRAFTSMANSHIP HARD GATE BLOCK]: Attempting to write implementation code in '${targetFile}' before completing required engineering phases. ${check.reason}`
           );
         }
       }

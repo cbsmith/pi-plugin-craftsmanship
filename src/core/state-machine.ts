@@ -27,6 +27,7 @@ export class QualityGateEngine {
     return {
       currentPhase: "UNINITIALIZED",
       sliceName: "default-slice",
+      hardGateEnforced: true,
       adrs: [],
       rfcs: [],
       tddCycles: [],
@@ -51,6 +52,11 @@ export class QualityGateEngine {
     this.saveState();
   }
 
+  public setHardGateEnforced(enforced: boolean): void {
+    this.state.hardGateEnforced = enforced;
+    this.saveState();
+  }
+
   public canTransitionTo(targetPhase: WorkflowPhase): { allowed: boolean; reason?: string } {
     const s = this.state;
 
@@ -60,63 +66,82 @@ export class QualityGateEngine {
 
       case "BDD_RED_VERIFICATION":
         if (!s.bddSpec || s.bddSpec.scenarios.length === 0) {
-          return { allowed: false, reason: "BDD specification features/scenarios must be defined first." };
+          return { allowed: false, reason: "HARD GATE BLOCKED: BDD specification features/scenarios must be defined first." };
         }
         const unresolved = s.bddSpec.clarifyingQuestions.filter((q) => !q.resolved);
         if (unresolved.length > 0) {
           return {
             allowed: false,
-            reason: `There are ${unresolved.length} unresolved clarifying questions regarding acceptance criteria.`,
+            reason: `HARD GATE BLOCKED: There are ${unresolved.length} unresolved clarifying questions regarding acceptance criteria.`,
           };
         }
         return { allowed: true };
 
       case "MULTI_LENS_TEST_REVIEW":
         if (!s.bddSpec?.isRedVerified) {
-          return { allowed: false, reason: "BDD scenarios must be executed and confirmed failing (RED) first." };
+          return { allowed: false, reason: "HARD GATE BLOCKED: BDD scenarios must be executed and confirmed failing (RED) first." };
         }
         return { allowed: true };
 
       case "SYSTEM_DESIGN_C4_FORMAL":
         if (!s.testReview || !s.testReview.passed) {
-          return { allowed: false, reason: "Multi-lens test review must pass all 4 lenses and slice decomposition (<400 LOC)." };
+          const blockers = s.testReview?.objections.filter((o) => o.severity === "BLOCKER" && !o.addressed) || [];
+          return {
+            allowed: false,
+            reason: `HARD GATE BLOCKED: Multi-lens test review has ${blockers.length} unresolved BLOCKER objection(s) or exceeds the <400 LOC slice limit.`,
+          };
         }
         return { allowed: true };
 
       case "ADR_RFC_GOVERNANCE":
         if (!s.c4Spec || !s.formalModel) {
-          return { allowed: false, reason: "C4 D2 diagrams and Alloy/TLA+ formal models must be completed first." };
+          return { allowed: false, reason: "HARD GATE BLOCKED: C4 D2 diagrams and Alloy/TLA+ formal models must be completed first." };
+        }
+        if (s.formalModel.counterexample) {
+          return {
+            allowed: false,
+            reason: `HARD GATE BLOCKED: TLC/Alloy model checker found a state counterexample trace violating invariant '${s.formalModel.counterexample.invariantViolated}'. Must resolve in formal spec first!`,
+          };
+        }
+        if (!s.formalModel.completenessEvaluation.isComplete) {
+          return {
+            allowed: false,
+            reason: `HARD GATE BLOCKED: Formal methods model is incomplete. Unmodeled state transitions: ${s.formalModel.completenessEvaluation.unmodeledStateTransitions.join(", ")}`,
+          };
         }
         return { allowed: true };
 
       case "TDD_UNIT_RED_GREEN":
         if (s.adrs.length === 0) {
-          return { allowed: false, reason: "At least one ADR must document key architectural decisions before code writing." };
+          return { allowed: false, reason: "HARD GATE BLOCKED: At least one ADR must document key architectural decisions before code writing." };
         }
-        const pendingRfcs = s.rfcs.filter((r) => r.status !== "APPROVED");
+        const pendingRfcs = s.rfcs.filter((r) => r.status !== "APPROVED" || !r.humanApproved);
         if (pendingRfcs.length > 0) {
           return {
             allowed: false,
-            reason: `There are ${pendingRfcs.length} open RFCs requiring 6-lens panel approval and human sign-off.`,
+            reason: `HARD GATE BLOCKED: ${pendingRfcs.length} open RFC(s) require dialectic agent panel approval AND human sign-off.`,
           };
         }
         return { allowed: true };
 
       case "MUTATION_TESTING":
         if (s.tddCycles.length === 0 || !s.tddCycles.every((c) => c.greenVerified)) {
-          return { allowed: false, reason: "All TDD unit tests must pass RED/GREEN cycles first." };
+          return { allowed: false, reason: "HARD GATE BLOCKED: All TDD unit tests must pass RED/GREEN cycles first." };
         }
         return { allowed: true };
 
       case "MULTI_LENS_CODE_REVIEW":
         if (!s.mutationResult || !s.mutationResult.passedThreshold) {
-          return { allowed: false, reason: "Mutation testing must meet or exceed the 85% mutant kill rate threshold." };
+          return { allowed: false, reason: "HARD GATE BLOCKED: Mutation testing must meet or exceed the 85% mutant kill rate threshold." };
         }
         return { allowed: true };
 
       case "COMPLETED_LOCKED":
         if (!s.finalReview || !s.finalReview.passed) {
-          return { allowed: false, reason: "Post-implementation 7-lens code review and static analysis must pass." };
+          return { allowed: false, reason: "HARD GATE BLOCKED: Post-implementation dialectic code review & static analysis have unresolved BLOCKER objections." };
+        }
+        if (s.driftReport?.hasDrift) {
+          return { allowed: false, reason: "HARD GATE BLOCKED: Architectural drift detected! Code structure conflicts with C4 diagrams and ADRs." };
         }
         return { allowed: true };
 
@@ -182,6 +207,11 @@ export class QualityGateEngine {
 
   public updateMutationResult(res: QualityGateState["mutationResult"]): void {
     this.state.mutationResult = res;
+    this.saveState();
+  }
+
+  public updateDriftReport(report: QualityGateState["driftReport"]): void {
+    this.state.driftReport = report;
     this.saveState();
   }
 
