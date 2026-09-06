@@ -70,7 +70,11 @@ LockSlice ==
   /\ phase' = "COMPLETED_LOCKED"
   /\ UNCHANGED <<bddVerified, designVerified, rfcApproved, tddVerified, reviewPassed, humanApproved>>
 
-Next == CompleteBDD \/ CompleteDesign \/ CompleteGovernance \/ StartTDD \/ CompleteReview \/ ConductHumanSliceReview \/ LockSlice
+TerminalStutter ==
+  /\ phase = "COMPLETED_LOCKED"
+  /\ UNCHANGED <<phase, bddVerified, designVerified, rfcApproved, tddVerified, reviewPassed, humanApproved>>
+
+Next == CompleteBDD \/ CompleteDesign \/ CompleteGovernance \/ StartTDD \/ CompleteReview \/ ConductHumanSliceReview \/ LockSlice \/ TerminalStutter
 
 Spec == Init /\ [][Next]_<<phase, bddVerified, designVerified, rfcApproved, tddVerified, reviewPassed, humanApproved>>
 
