@@ -11,7 +11,7 @@ import { PostImplementationCodeReviewPanel } from "../src/core/code-review-panel
 
 const testProjectDir = path.join(__dirname, "../tmp_test_project");
 
-describe("Pi Craftsmanship Plugin Dialectic Workflow & Guided Human Slice Review", () => {
+describe("Pi Craftsmanship Plugin Low-Risk Exemption Engine & Hard Gates", () => {
   beforeEach(() => {
     if (fs.existsSync(testProjectDir)) {
       fs.rmSync(testProjectDir, { recursive: true, force: true });
@@ -19,17 +19,46 @@ describe("Pi Craftsmanship Plugin Dialectic Workflow & Guided Human Slice Review
     fs.mkdirSync(testProjectDir, { recursive: true });
   });
 
-  it("1. Hard Quality Gates: blocks transition when prerequisite phases or human slice review are missing", () => {
+  it("1. Hard Quality Gates: blocks skipping steps without human approval", () => {
     const qEngine = new QualityGateEngine(testProjectDir);
-    expect(qEngine.getState().hardGateEnforced).toBe(true);
+    qEngine.updateBDDSpec({ featureName: "LowRiskFix", userStory: "story", acceptanceCriteria: ["ac1"], scenarios: [{ id: "SC1", title: "s1", given: [], when: [], then: [], tags: [] }], clarifyingQuestions: [], rawGherkin: "", isRedVerified: true });
+    qEngine.updateTestReview({ passed: true, objections: [], summary: "Pass", reReviewRequired: false, iterationCount: 1, sliceDecomposition: { sliceName: "LowRiskFix", estimatedLOC: 50, isWithinLimit: true, sliceComponents: [] } });
 
-    // Try transitioning to COMPLETED_LOCKED without human slice review
-    const check = qEngine.canTransitionTo("COMPLETED_LOCKED");
-    expect(check.allowed).toBe(false);
-    expect(check.reason).toContain("HARD GATE BLOCKED");
+    // Formal methods missing and NO human exemption -> HARD GATE BLOCKED
+    const check1 = qEngine.canTransitionTo("ADR_RFC_GOVERNANCE");
+    expect(check1.allowed).toBe(false);
+    expect(check1.reason).toContain("HARD GATE BLOCKED");
   });
 
-  it("2. BDD Engine: detects ambiguous acceptance criteria & builds Gherkin", () => {
+  it("2. Low-Risk Exemption: permits skipping formal methods and C4 ONLY with human approval", () => {
+    const qEngine = new QualityGateEngine(testProjectDir);
+    qEngine.updateBDDSpec({ featureName: "LowRiskFix", userStory: "story", acceptanceCriteria: ["ac1"], scenarios: [{ id: "SC1", title: "s1", given: [], when: [], then: [], tags: [] }], clarifyingQuestions: [], rawGherkin: "", isRedVerified: true });
+    qEngine.updateTestReview({ passed: true, objections: [], summary: "Pass", reReviewRequired: false, iterationCount: 1, sliceDecomposition: { sliceName: "LowRiskFix", estimatedLOC: 50, isWithinLimit: true, sliceComponents: [] } });
+
+    // Record human-approved exemption for FORMAL_METHODS & C4_DIAGRAMS
+    qEngine.recordExemption({
+      gate: "FORMAL_METHODS",
+      riskAssessment: "Small CSS alignment fix",
+      requestedByAgent: true,
+      humanApproved: true,
+      humanReviewerNotes: "Approved by Lead",
+      timestamp: new Date().toISOString(),
+    });
+    qEngine.recordExemption({
+      gate: "C4_DIAGRAMS",
+      riskAssessment: "Small CSS alignment fix",
+      requestedByAgent: true,
+      humanApproved: true,
+      humanReviewerNotes: "Approved by Lead",
+      timestamp: new Date().toISOString(),
+    });
+
+    // Now transition is ALLOWED due to human-approved exemption
+    const check2 = qEngine.canTransitionTo("ADR_RFC_GOVERNANCE");
+    expect(check2.allowed).toBe(true);
+  });
+
+  it("3. BDD Engine: detects ambiguous acceptance criteria & builds Gherkin", () => {
     const bdd = new BDDEngine(testProjectDir);
     const questions = bdd.analyzeAcceptanceCriteria(
       "User Authentication",
@@ -55,7 +84,7 @@ describe("Pi Craftsmanship Plugin Dialectic Workflow & Guided Human Slice Review
     expect(fs.existsSync(savedPath)).toBe(true);
   });
 
-  it("3. Dialectic Test Review Panel: emits BLOCKER objections & enforces <400 LOC slice limit", () => {
+  it("4. Dialectic Test Review Panel: emits BLOCKER objections & enforces <400 LOC slice limit", () => {
     const reviewer = new PreImplementationTestReviewPanel();
     const spec = {
       featureName: "Payment Gateway",
@@ -77,7 +106,7 @@ describe("Pi Craftsmanship Plugin Dialectic Workflow & Guided Human Slice Review
     expect(failResult.passed).toBe(false);
   });
 
-  it("4. System Design: code AST C4 diagrams, formal counterexample traces, & stateful property test auto-synthesis", () => {
+  it("5. System Design: code AST C4 diagrams, formal counterexample traces, & stateful property test auto-synthesis", () => {
     const design = new SystemDesignEngine(testProjectDir);
 
     const c4 = design.generateC4FromCode("OrderService", []);
@@ -90,7 +119,7 @@ describe("Pi Craftsmanship Plugin Dialectic Workflow & Guided Human Slice Review
     expect(fs.existsSync(saved.propertyPath)).toBe(true);
   });
 
-  it("5. Architecture Governance & Dialectic RFC Panel: 6 agent lenses & human sign-off", () => {
+  it("6. Architecture Governance & Dialectic RFC Panel: 6 agent lenses & human sign-off", () => {
     const gov = new ArchitectureGovernanceEngine(testProjectDir);
 
     const adr = gov.createADR("Use Event Driven Architecture", "Need high throughput", "Use Kafka", ["Scalability"]);
@@ -100,7 +129,7 @@ describe("Pi Craftsmanship Plugin Dialectic Workflow & Guided Human Slice Review
     expect(rfc.reviewResult.objections.some((o) => o.severity === "BLOCKER")).toBe(true);
   });
 
-  it("6. Self-Healing TDD RED/GREEN Iteration Engine & Mutation Testing", () => {
+  it("7. Self-Healing TDD RED/GREEN Iteration Engine & Mutation Testing", () => {
     const tdd = new TDDEngine();
 
     const tddResult = tdd.runAutoTDDIterationLoop(
@@ -116,7 +145,7 @@ describe("Pi Craftsmanship Plugin Dialectic Workflow & Guided Human Slice Review
     expect(mutationResult.killRatePercent).toBeGreaterThanOrEqual(85);
   });
 
-  it("7. Guided Human Slice Review: conducts 6-checkpoint walkthrough and locks slice upon sign-off", () => {
+  it("8. Guided Human Slice Review: conducts 6-checkpoint walkthrough and locks slice upon sign-off", () => {
     const qEngine = new QualityGateEngine(testProjectDir);
 
     qEngine.updateBDDSpec({ featureName: "OrderModule", userStory: "story", acceptanceCriteria: ["ac1"], scenarios: [], clarifyingQuestions: [], rawGherkin: "", isRedVerified: true });
@@ -132,7 +161,6 @@ describe("Pi Craftsmanship Plugin Dialectic Workflow & Guided Human Slice Review
     qEngine.updateFinalReview(result);
     qEngine.setPhase("GUIDED_HUMAN_SLICE_REVIEW");
 
-    // Conduct Guided Human Slice Review
     qEngine.recordHumanSliceReview({
       sliceName: "OrderModule",
       reviewerName: "Lead Engineer",

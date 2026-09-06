@@ -1,6 +1,6 @@
 import * as fs from "fs";
 import * as path from "path";
-import { QualityGateState, WorkflowPhase } from "../types";
+import { ExemptableGate, QualityGateExemption, QualityGateState, WorkflowPhase } from "../types";
 
 export class QualityGateEngine {
   private stateFilePath: string;
@@ -19,7 +19,11 @@ export class QualityGateEngine {
     if (fs.existsSync(this.stateFilePath)) {
       try {
         const raw = fs.readFileSync(this.stateFilePath, "utf-8");
-        return JSON.parse(raw);
+        const parsed = JSON.parse(raw);
+        return {
+          exemptions: [],
+          ...parsed,
+        };
       } catch {
         // Return default state on parse error
       }
@@ -28,6 +32,7 @@ export class QualityGateEngine {
       currentPhase: "UNINITIALIZED",
       sliceName: "default-slice",
       hardGateEnforced: true,
+      exemptions: [],
       adrs: [],
       rfcs: [],
       tddCycles: [],
@@ -54,6 +59,23 @@ export class QualityGateEngine {
 
   public setHardGateEnforced(enforced: boolean): void {
     this.state.hardGateEnforced = enforced;
+    this.saveState();
+  }
+
+  public hasApprovedExemption(gate: ExemptableGate): boolean {
+    return (this.state.exemptions || []).some((e) => e.gate === gate && e.humanApproved);
+  }
+
+  public recordExemption(exemption: QualityGateExemption): void {
+    if (!this.state.exemptions) {
+      this.state.exemptions = [];
+    }
+    const idx = this.state.exemptions.findIndex((e) => e.gate === exemption.gate);
+    if (idx >= 0) {
+      this.state.exemptions[idx] = exemption;
+    } else {
+      this.state.exemptions.push(exemption);
+    }
     this.saveState();
   }
 
@@ -94,16 +116,23 @@ export class QualityGateEngine {
         return { allowed: true };
 
       case "ADR_RFC_GOVERNANCE":
-        if (!s.c4Spec || !s.formalModel) {
-          return { allowed: false, reason: "HARD GATE BLOCKED: C4 D2 diagrams and Alloy/TLA+ formal models must be completed first." };
+        const hasC4 = !!s.c4Spec || this.hasApprovedExemption("C4_DIAGRAMS");
+        const hasFormal = !!s.formalModel || this.hasApprovedExemption("FORMAL_METHODS");
+
+        if (!hasC4 || !hasFormal) {
+          return {
+            allowed: false,
+            reason: "HARD GATE BLOCKED: C4 D2 diagrams and Alloy/TLA+ formal models must be completed first (or have explicit HUMAN-APPROVED exemptions).",
+          };
         }
-        if (s.formalModel.counterexample) {
+
+        if (s.formalModel?.counterexample && !this.hasApprovedExemption("FORMAL_METHODS")) {
           return {
             allowed: false,
             reason: `HARD GATE BLOCKED: TLC/Alloy model checker found a state counterexample trace violating invariant '${s.formalModel.counterexample.invariantViolated}'. Must resolve in formal spec first!`,
           };
         }
-        if (!s.formalModel.completenessEvaluation.isComplete) {
+        if (s.formalModel && !s.formalModel.completenessEvaluation.isComplete && !this.hasApprovedExemption("FORMAL_METHODS")) {
           return {
             allowed: false,
             reason: `HARD GATE BLOCKED: Formal methods model is incomplete. Unmodeled state transitions: ${s.formalModel.completenessEvaluation.unmodeledStateTransitions.join(", ")}`,
@@ -112,15 +141,18 @@ export class QualityGateEngine {
         return { allowed: true };
 
       case "TDD_UNIT_RED_GREEN":
-        if (s.adrs.length === 0) {
-          return { allowed: false, reason: "HARD GATE BLOCKED: At least one ADR must document key architectural decisions before code writing." };
+        const hasADR = s.adrs.length > 0 || this.hasApprovedExemption("ADR_DOCUMENTATION");
+        if (!hasADR) {
+          return { allowed: false, reason: "HARD GATE BLOCKED: At least one ADR must document key architectural decisions before code writing (or have explicit HUMAN-APPROVED exemption)." };
         }
-        const pendingRfcs = s.rfcs.filter((r) => r.status !== "APPROVED" || !r.humanApproved);
-        if (pendingRfcs.length > 0) {
-          return {
-            allowed: false,
-            reason: `HARD GATE BLOCKED: ${pendingRfcs.length} open RFC(s) require dialectic agent panel approval AND human sign-off.`,
-          };
+        if (!this.hasApprovedExemption("RFC_GOVERNANCE")) {
+          const pendingRfcs = s.rfcs.filter((r) => r.status !== "APPROVED" || !r.humanApproved);
+          if (pendingRfcs.length > 0) {
+            return {
+              allowed: false,
+              reason: `HARD GATE BLOCKED: ${pendingRfcs.length} open RFC(s) require dialectic agent panel approval AND human sign-off.`,
+            };
+          }
         }
         return { allowed: true };
 

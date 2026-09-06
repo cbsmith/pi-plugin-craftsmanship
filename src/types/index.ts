@@ -17,6 +17,21 @@ export type WorkflowPhase =
 
 export type SeverityLevel = "BLOCKER" | "MAJOR" | "MINOR";
 
+export type ExemptableGate =
+  | "FORMAL_METHODS"
+  | "C4_DIAGRAMS"
+  | "ADR_DOCUMENTATION"
+  | "RFC_GOVERNANCE";
+
+export interface QualityGateExemption {
+  gate: ExemptableGate;
+  riskAssessment: string;
+  requestedByAgent: boolean;
+  humanApproved: boolean;
+  humanReviewerNotes?: string;
+  timestamp: string;
+}
+
 export interface DialecticObjection {
   id: string;
   lens: string; // e.g. "Security", "Simplicity", "Acceptance Criteria", etc.
@@ -196,6 +211,7 @@ export interface QualityGateState {
   currentPhase: WorkflowPhase;
   sliceName: string;
   hardGateEnforced: boolean;
+  exemptions: QualityGateExemption[];
   bddSpec?: BDDFeatureSpec;
   testReview?: DialecticReviewResult & { sliceDecomposition: SliceDecompositionResult };
   c4Spec?: C4DiagramSpec;

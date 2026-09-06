@@ -7,7 +7,7 @@ import { ArchitectureGovernanceEngine } from "../core/architecture-governance";
 import { TDDEngine } from "../core/tdd-engine";
 import { PostImplementationCodeReviewPanel } from "../core/code-review-panel";
 import { QualityGateEngine } from "../core/state-machine";
-import { ExtensionAPI, ExtensionContext } from "../types";
+import { ExemptableGate, ExtensionAPI, ExtensionContext } from "../types";
 
 export function registerCommands(pi: ExtensionAPI): void {
 
@@ -41,13 +41,14 @@ export function registerCommands(pi: ExtensionAPI): void {
       dashboard += `Current Phase       : ${state.currentPhase}\n`;
       dashboard += `Slice Name          : ${state.sliceName}\n`;
       dashboard += `Hard Gates Enforced : ${state.hardGateEnforced ? "YES (Strict Block)" : "NO"}\n`;
+      dashboard += `Gate Exemptions     : ${(state.exemptions || []).map((e) => `${e.gate}:${e.humanApproved ? "APPROVED" : "DENIED"}`).join(", ") || "None"}\n`;
       dashboard += `BDD Feature         : ${state.bddSpec ? `${state.bddSpec.featureName} (${state.bddSpec.scenarios.length} scenarios)` : "None"}\n`;
       dashboard += `RED Verification    : ${state.bddSpec?.isRedVerified ? "VERIFIED RED" : "NOT VERIFIED"}\n`;
       dashboard += `Dialectic Test Review: ${state.testReview ? (state.testReview.passed ? "PASSED (0 Objections)" : `REJECTED (${state.testReview.objections.length} objections)`) : "None"}\n`;
-      dashboard += `C4 Diagrams         : ${state.c4Spec ? (state.c4Spec.generatedFromCode ? "CODE-GENERATED (D2)" : "GENERATED (D2)") : "None"}\n`;
-      dashboard += `Formal Methods      : ${state.formalModel ? (state.formalModel.counterexample ? "COUNTEREXAMPLE DETECTED" : "VERIFIED (Alloy, TLA+, Property Tests)") : "None"}\n`;
-      dashboard += `ADRs Recorded       : ${state.adrs.length}\n`;
-      dashboard += `RFCs                : ${state.rfcs.map((r) => `${r.id}: ${r.status}`).join(", ") || "None"}\n`;
+      dashboard += `C4 Diagrams         : ${state.c4Spec ? (state.c4Spec.generatedFromCode ? "CODE-GENERATED (D2)" : "GENERATED (D2)") : (qEngine.hasApprovedExemption("C4_DIAGRAMS") ? "EXEMPTED (Human Approved)" : "None")}\n`;
+      dashboard += `Formal Methods      : ${state.formalModel ? (state.formalModel.counterexample ? "COUNTEREXAMPLE DETECTED" : "VERIFIED (Alloy, TLA+, Property Tests)") : (qEngine.hasApprovedExemption("FORMAL_METHODS") ? "EXEMPTED (Human Approved)" : "None")}\n`;
+      dashboard += `ADRs Recorded       : ${state.adrs.length}${qEngine.hasApprovedExemption("ADR_DOCUMENTATION") ? " (Exempted)" : ""}\n`;
+      dashboard += `RFCs                : ${state.rfcs.map((r) => `${r.id}: ${r.status}`).join(", ") || (qEngine.hasApprovedExemption("RFC_GOVERNANCE") ? "EXEMPTED (Human Approved)" : "None")}\n`;
       dashboard += `TDD Cycles          : ${state.tddCycles.length}\n`;
       dashboard += `Mutation Test       : ${state.mutationResult ? `${state.mutationResult.killRatePercent}% (Pass >= 85%)` : "None"}\n`;
       dashboard += `Drift Guard         : ${state.driftReport ? (state.driftReport.hasDrift ? "DRIFT DETECTED" : "IN SYNC") : "None"}\n`;
@@ -59,7 +60,46 @@ export function registerCommands(pi: ExtensionAPI): void {
     },
   });
 
-  // Command 3: /craft-bdd
+  // Command 3: /craft-skip
+  pi.registerCommand("craft-skip", {
+    description: "Request human approval to skip heavy steps for low-risk work (/craft-skip FORMAL_METHODS|C4_DIAGRAMS|ADR_DOCUMENTATION|RFC_GOVERNANCE)",
+    handler: async (args: string, ctx: ExtensionContext) => {
+      const qEngine = new QualityGateEngine(ctx.cwd);
+      const gateArg = args.trim().toUpperCase() as ExemptableGate;
+
+      const validGates: ExemptableGate[] = ["FORMAL_METHODS", "C4_DIAGRAMS", "ADR_DOCUMENTATION", "RFC_GOVERNANCE"];
+      if (!validGates.includes(gateArg)) {
+        ctx.ui.notify(`Invalid gate '${args}'. Valid gates to skip: ${validGates.join(", ")}`, "error");
+        return;
+      }
+
+      const riskAssessment = await ctx.ui.ask(`Enter Low-Risk Assessment explaining why skipping '${gateArg}' is safe:`);
+      const prompt = `[LOW-RISK WORK EXEMPTION REQUEST] Skip gate '${gateArg}'? Reason: "${riskAssessment}". Do you approve?`;
+      const approved = await ctx.ui.confirm(prompt);
+
+      let notes = "Skipped via /craft-skip command.";
+      if (approved) {
+        notes = await ctx.ui.ask(`Enter Human Exemption Notes for skipping '${gateArg}':`);
+      }
+
+      qEngine.recordExemption({
+        gate: gateArg,
+        riskAssessment,
+        requestedByAgent: false,
+        humanApproved: approved,
+        humanReviewerNotes: notes,
+        timestamp: new Date().toISOString(),
+      });
+
+      if (approved) {
+        ctx.ui.notify(`HUMAN EXEMPTION GRANTED: Skipping '${gateArg}' approved for this slice!`, "success");
+      } else {
+        ctx.ui.notify(`HUMAN EXEMPTION REJECTED: Skipping '${gateArg}' was denied. Step remains mandatory.`, "error");
+      }
+    },
+  });
+
+  // Command 4: /craft-bdd
   pi.registerCommand("craft-bdd", {
     description: "Interactively define BDD feature specifications & resolve clarifying questions",
     handler: async (args: string, ctx: ExtensionContext) => {
@@ -109,7 +149,7 @@ export function registerCommands(pi: ExtensionAPI): void {
     },
   });
 
-  // Command 4: /craft-review-tests
+  // Command 5: /craft-review-tests
   pi.registerCommand("craft-review-tests", {
     description: "Run dialectic pre-implementation test review & slice decomposition check (<400 LOC)",
     handler: async (_args: string, ctx: ExtensionContext) => {
@@ -134,7 +174,7 @@ export function registerCommands(pi: ExtensionAPI): void {
     },
   });
 
-  // Command 5: /craft-design
+  // Command 6: /craft-design
   pi.registerCommand("craft-design", {
     description: "Generate AST C4 D2 diagrams, Alloy & TLA+ formal models, and stateful property tests",
     handler: async (_args: string, ctx: ExtensionContext) => {
@@ -152,7 +192,7 @@ export function registerCommands(pi: ExtensionAPI): void {
       design.saveFormalModels(sliceName, formal);
       qEngine.updateFormalModel(formal);
 
-      if (formal.provedAbstractly) {
+      if (formal.provedAbstractly || qEngine.hasApprovedExemption("FORMAL_METHODS")) {
         qEngine.setPhase("SYSTEM_DESIGN_C4_FORMAL");
         ctx.ui.notify("C4 D2 diagrams, Alloy/TLA+ specs, and stateful property tests generated cleanly!", "success");
       } else {
@@ -161,7 +201,7 @@ export function registerCommands(pi: ExtensionAPI): void {
     },
   });
 
-  // Command 6: /craft-rfc
+  // Command 7: /craft-rfc
   pi.registerCommand("craft-rfc", {
     description: "Manage architectural RFCs, run dialectic 6-lens panel critique, or record human approval (/craft-rfc approve <id>)",
     handler: async (args: string, ctx: ExtensionContext) => {
@@ -202,7 +242,7 @@ export function registerCommands(pi: ExtensionAPI): void {
     },
   });
 
-  // Command 7: /craft-tdd
+  // Command 8: /craft-tdd
   pi.registerCommand("craft-tdd", {
     description: "Enforce self-healing TDD RED/GREEN loop & mutation test validation (>=85%)",
     handler: async (_args: string, ctx: ExtensionContext) => {
@@ -236,7 +276,7 @@ export function registerCommands(pi: ExtensionAPI): void {
     },
   });
 
-  // Command 8: /craft-review
+  // Command 9: /craft-review
   pi.registerCommand("craft-review", {
     description: "Run static analysis diagnostics, Architectural Drift Guard, & 7-lens dialectic code review",
     handler: async (_args: string, ctx: ExtensionContext) => {
@@ -258,7 +298,7 @@ export function registerCommands(pi: ExtensionAPI): void {
     },
   });
 
-  // Command 9: /craft-slice-review
+  // Command 10: /craft-slice-review
   pi.registerCommand("craft-slice-review", {
     description: "Conduct interactive Guided Human Slice Review walkthrough & record human sign-off",
     handler: async (_args: string, ctx: ExtensionContext) => {
@@ -282,8 +322,8 @@ export function registerCommands(pi: ExtensionAPI): void {
         timestamp: new Date().toISOString(),
         walkthroughSections: {
           bddSummary: state.bddSpec ? `Feature: ${state.bddSpec.featureName} (${state.bddSpec.scenarios.length} scenarios, RED Verified: ${state.bddSpec.isRedVerified})` : "None",
-          designAndADRSummary: `C4 D2: ${state.c4Spec ? "Generated" : "Missing"}, ADRs: ${state.adrs.length} recorded`,
-          formalAndPropertySummary: `Formal Spec: ${state.formalModel ? (state.formalModel.provedAbstractly ? "Verified (Alloy & TLA+)" : "Counterexample Detected") : "Missing"}`,
+          designAndADRSummary: `C4 D2: ${state.c4Spec ? "Generated" : (qEngine.hasApprovedExemption("C4_DIAGRAMS") ? "Exempted" : "Missing")}, ADRs: ${state.adrs.length} recorded`,
+          formalAndPropertySummary: `Formal Spec: ${state.formalModel ? (state.formalModel.provedAbstractly ? "Verified (Alloy & TLA+)" : "Counterexample Detected") : (qEngine.hasApprovedExemption("FORMAL_METHODS") ? "Exempted" : "Missing")}`,
           testAndMutationSummary: `Mutation Kill Rate: ${state.mutationResult?.killRatePercent || 0}% (Threshold >= 85%)`,
           staticAnalysisAndReviewSummary: `Static Diagnostics: Clean, Dialectic Review: ${state.finalReview?.passed ? "Passed 7 Lenses" : "Rejected"}`,
           driftGuardSummary: `Architectural Drift: ${state.driftReport?.hasDrift ? "DRIFT DETECTED" : "NO DRIFT (In Sync)"}`,

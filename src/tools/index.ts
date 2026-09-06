@@ -6,7 +6,7 @@ import { ArchitectureGovernanceEngine } from "../core/architecture-governance";
 import { TDDEngine } from "../core/tdd-engine";
 import { PostImplementationCodeReviewPanel } from "../core/code-review-panel";
 import { QualityGateEngine } from "../core/state-machine";
-import { ExtensionAPI, ExtensionContext } from "../types";
+import { ExemptableGate, ExtensionAPI, ExtensionContext } from "../types";
 
 export function registerTools(pi: ExtensionAPI): void {
 
@@ -97,7 +97,50 @@ export function registerTools(pi: ExtensionAPI): void {
     },
   });
 
-  // Tool 3: Generate Code-Derived C4 D2 Diagrams
+  // Tool 3: Request Human Exemption for Low-Risk Work
+  pi.registerTool({
+    name: "craft_request_gate_exemption",
+    label: "Craftsmanship: Request Human Exemption for Low-Risk Work",
+    description: "Requests human confirmation to skip heavy steps (FORMAL_METHODS, C4_DIAGRAMS, ADR_DOCUMENTATION, RFC_GOVERNANCE) for small or low-risk work.",
+    parameters: Type.Object({
+      gate: Type.Union([
+        Type.Literal("FORMAL_METHODS"),
+        Type.Literal("C4_DIAGRAMS"),
+        Type.Literal("ADR_DOCUMENTATION"),
+        Type.Literal("RFC_GOVERNANCE"),
+      ], { description: "The quality gate to request exemption for" }),
+      riskAssessment: Type.String({ description: "Agent risk assessment explaining why the work is small/low-risk enough to skip this step" }),
+    }),
+    execute: async (_id: string, params: any, ctx: ExtensionContext) => {
+      const qEngine = new QualityGateEngine(ctx.cwd);
+
+      const prompt = `[LOW-RISK WORK EXEMPTION REQUEST] Agent assesses gate '${params.gate}' as low-risk. Reason: "${params.riskAssessment}". Do you confirm skipping '${params.gate}'?`;
+      const approved = await ctx.ui.confirm(prompt);
+      let notes = "Skipped by agent request.";
+      if (approved) {
+        notes = await ctx.ui.ask(`Enter Human Exemption Notes for skipping '${params.gate}':`);
+      }
+
+      const exemption = {
+        gate: params.gate as ExemptableGate,
+        riskAssessment: params.riskAssessment,
+        requestedByAgent: true,
+        humanApproved: approved,
+        humanReviewerNotes: notes,
+        timestamp: new Date().toISOString(),
+      };
+
+      qEngine.recordExemption(exemption);
+
+      if (approved) {
+        return { content: [{ type: "text", text: `EXEMPTION GRANTED: Human approved skipping '${params.gate}' for this slice. Notes: ${notes}` }] };
+      } else {
+        return { content: [{ type: "text", text: `EXEMPTION DENIED: Human rejected skipping '${params.gate}'. Step remains MANDATORY.` }] };
+      }
+    },
+  });
+
+  // Tool 4: Generate Code-Derived C4 D2 Diagrams
   pi.registerTool({
     name: "craft_generate_c4_d2",
     label: "Craftsmanship: Code-Generated C4 D2 Diagrams",
@@ -118,7 +161,7 @@ export function registerTools(pi: ExtensionAPI): void {
     },
   });
 
-  // Tool 4: Generate Formal Specs (Alloy, TLA+, & Stateful Property-Based Tests)
+  // Tool 5: Generate Formal Specs (Alloy, TLA+, & Stateful Property-Based Tests)
   pi.registerTool({
     name: "craft_generate_formal_spec",
     label: "Craftsmanship: Formal Methods (Alloy, TLA+, & Stateful Property Tests)",
@@ -153,7 +196,7 @@ export function registerTools(pi: ExtensionAPI): void {
     },
   });
 
-  // Tool 5: Create ADR
+  // Tool 6: Create ADR
   pi.registerTool({
     name: "craft_create_adr",
     label: "Craftsmanship: Record Architectural Decision (ADR)",
@@ -175,7 +218,7 @@ export function registerTools(pi: ExtensionAPI): void {
     },
   });
 
-  // Tool 6: Dialectic 6-Lens Agent RFC Review & Human Sign-off
+  // Tool 7: Dialectic 6-Lens Agent RFC Review & Human Sign-off
   pi.registerTool({
     name: "craft_run_rfc_panel",
     label: "Craftsmanship: 6-Lens Dialectic RFC Panel & Human Sign-off",
@@ -209,7 +252,7 @@ export function registerTools(pi: ExtensionAPI): void {
     },
   });
 
-  // Tool 7: Self-Healing TDD RED/GREEN Iteration Engine
+  // Tool 8: Self-Healing TDD RED/GREEN Iteration Engine
   pi.registerTool({
     name: "craft_auto_tdd_loop",
     label: "Craftsmanship: Self-Healing TDD RED/GREEN Iteration Loop",
@@ -246,7 +289,7 @@ export function registerTools(pi: ExtensionAPI): void {
     },
   });
 
-  // Tool 8: Run Mutation Testing
+  // Tool 9: Run Mutation Testing
   pi.registerTool({
     name: "craft_run_mutation_tests",
     label: "Craftsmanship: Execute Mutation Testing",
@@ -276,7 +319,7 @@ export function registerTools(pi: ExtensionAPI): void {
     },
   });
 
-  // Tool 9: Dialectic Post-Implementation Review & Architectural Drift Guard
+  // Tool 10: Dialectic Post-Implementation Review & Architectural Drift Guard
   pi.registerTool({
     name: "craft_run_code_review",
     label: "Craftsmanship: Dialectic Code Review & Drift Guard",
@@ -320,7 +363,7 @@ export function registerTools(pi: ExtensionAPI): void {
     },
   });
 
-  // Tool 10: Guided Human Slice Review Walkthrough & Sign-off
+  // Tool 11: Guided Human Slice Review Walkthrough & Sign-off
   pi.registerTool({
     name: "craft_guided_human_slice_review",
     label: "Craftsmanship: Guided Human Slice Review Walkthrough",
@@ -342,8 +385,8 @@ export function registerTools(pi: ExtensionAPI): void {
         timestamp: new Date().toISOString(),
         walkthroughSections: {
           bddSummary: state.bddSpec ? `Feature: ${state.bddSpec.featureName} (${state.bddSpec.scenarios.length} scenarios, RED Verified: ${state.bddSpec.isRedVerified})` : "None",
-          designAndADRSummary: `C4 D2: ${state.c4Spec ? "Generated" : "Missing"}, ADRs: ${state.adrs.length} recorded`,
-          formalAndPropertySummary: `Formal Spec: ${state.formalModel ? (state.formalModel.provedAbstractly ? "Verified (Alloy & TLA+)" : "Counterexample Detected") : "Missing"}`,
+          designAndADRSummary: `C4 D2: ${state.c4Spec ? "Generated" : "Missing/Exempt"}, ADRs: ${state.adrs.length} recorded`,
+          formalAndPropertySummary: `Formal Spec: ${state.formalModel ? (state.formalModel.provedAbstractly ? "Verified (Alloy & TLA+)" : "Counterexample Detected") : "Missing/Exempt"}`,
           testAndMutationSummary: `Mutation Kill Rate: ${state.mutationResult?.killRatePercent || 0}% (Threshold >= 85%)`,
           staticAnalysisAndReviewSummary: `Static Diagnostics: Clean, Dialectic Review: ${state.finalReview?.passed ? "Passed 7 Lenses" : "Rejected"}`,
           driftGuardSummary: `Architectural Drift: ${state.driftReport?.hasDrift ? "DRIFT DETECTED" : "NO DRIFT (In Sync)"}`,
@@ -373,7 +416,7 @@ export function registerTools(pi: ExtensionAPI): void {
     },
   });
 
-  // Tool 11: Check Quality Gate Status
+  // Tool 12: Check Quality Gate Status
   pi.registerTool({
     name: "craft_check_gate",
     label: "Craftsmanship: Check Quality Gate Status",
@@ -385,7 +428,7 @@ export function registerTools(pi: ExtensionAPI): void {
       const qEngine = new QualityGateEngine(ctx.cwd);
       const state = qEngine.getState();
 
-      let output = `Current Workflow Phase: ${state.currentPhase}\nSlice Name: ${state.sliceName}\nHard Gates Enforced: ${state.hardGateEnforced ? "YES" : "NO"}\n`;
+      let output = `Current Workflow Phase: ${state.currentPhase}\nSlice Name: ${state.sliceName}\nHard Gates Enforced: ${state.hardGateEnforced ? "YES" : "NO"}\nExemptions: ${(state.exemptions || []).map((e) => `${e.gate}:${e.humanApproved ? "APPROVED" : "DENIED"}`).join(", ") || "None"}\n`;
       if (params.targetPhase) {
         const check = qEngine.canTransitionTo(params.targetPhase as any);
         output += `Transition Check to '${params.targetPhase}': ${check.allowed ? "ALLOWED" : `BLOCKED (${check.reason})`}`;
