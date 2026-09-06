@@ -12,6 +12,7 @@ export type WorkflowPhase =
   | "TDD_UNIT_RED_GREEN"
   | "MUTATION_TESTING"
   | "MULTI_LENS_CODE_REVIEW"
+  | "GUIDED_HUMAN_SLICE_REVIEW"
   | "COMPLETED_LOCKED";
 
 export type SeverityLevel = "BLOCKER" | "MAJOR" | "MINOR";
@@ -175,6 +176,22 @@ export interface FinalCodeReviewResult {
   summary: string;
 }
 
+export interface GuidedHumanSliceReviewRecord {
+  sliceName: string;
+  reviewerName: string;
+  approved: boolean;
+  notes: string;
+  timestamp: string;
+  walkthroughSections: {
+    bddSummary: string;
+    designAndADRSummary: string;
+    formalAndPropertySummary: string;
+    testAndMutationSummary: string;
+    staticAnalysisAndReviewSummary: string;
+    driftGuardSummary: string;
+  };
+}
+
 export interface QualityGateState {
   currentPhase: WorkflowPhase;
   sliceName: string;
@@ -189,6 +206,7 @@ export interface QualityGateState {
   mutationResult?: MutationTestResult;
   driftReport?: ArchitecturalDriftReport;
   finalReview?: FinalCodeReviewResult;
+  humanSliceReview?: GuidedHumanSliceReviewRecord;
 }
 
 export interface ExtensionUI {

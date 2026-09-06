@@ -52,6 +52,7 @@ export function registerCommands(pi: ExtensionAPI): void {
       dashboard += `Mutation Test       : ${state.mutationResult ? `${state.mutationResult.killRatePercent}% (Pass >= 85%)` : "None"}\n`;
       dashboard += `Drift Guard         : ${state.driftReport ? (state.driftReport.hasDrift ? "DRIFT DETECTED" : "IN SYNC") : "None"}\n`;
       dashboard += `Final Code Review   : ${state.finalReview ? (state.finalReview.passed ? "APPROVED" : "REJECTED") : "None"}\n`;
+      dashboard += `Guided Human Review : ${state.humanSliceReview ? (state.humanSliceReview.approved ? `APPROVED by ${state.humanSliceReview.reviewerName}` : "REJECTED") : "PENDING HUMAN WALKTHROUGH"}\n`;
       dashboard += `=================================================================\n`;
 
       ctx.ui.notify(dashboard, "info");
@@ -249,10 +250,53 @@ export function registerCommands(pi: ExtensionAPI): void {
       qEngine.updateFinalReview(result);
 
       if (result.passed) {
-        qEngine.setPhase("COMPLETED_LOCKED");
-        ctx.ui.notify("CONGRATULATIONS! Post-implementation dialectic code review & Architectural Drift Guard PASSED! Slice complete and ready to merge.", "success");
+        qEngine.setPhase("GUIDED_HUMAN_SLICE_REVIEW");
+        ctx.ui.notify("CONGRATULATIONS! Post-implementation dialectic code review PASSED! Run '/craft-slice-review' to perform the guided human slice review walkthrough.", "success");
       } else {
         ctx.ui.notify(`Code review REJECTED: ${result.summary}`, "error");
+      }
+    },
+  });
+
+  // Command 9: /craft-slice-review
+  pi.registerCommand("craft-slice-review", {
+    description: "Conduct interactive Guided Human Slice Review walkthrough & record human sign-off",
+    handler: async (_args: string, ctx: ExtensionContext) => {
+      const qEngine = new QualityGateEngine(ctx.cwd);
+      const state = qEngine.getState();
+
+      if (!state.finalReview || !state.finalReview.passed) {
+        ctx.ui.notify("Error: Post-implementation code review must pass cleanly before conducting guided human slice review.", "error");
+        return;
+      }
+
+      const reviewerName = await ctx.ui.ask("Enter Human Reviewer Name/ID:");
+      const approved = await ctx.ui.confirm(`Approve and lock slice '${state.sliceName}' after guided review walkthrough?`);
+      const notes = await ctx.ui.ask("Enter Reviewer Sign-off Notes / Feedback:");
+
+      const record = {
+        sliceName: state.sliceName,
+        reviewerName,
+        approved,
+        notes,
+        timestamp: new Date().toISOString(),
+        walkthroughSections: {
+          bddSummary: state.bddSpec ? `Feature: ${state.bddSpec.featureName} (${state.bddSpec.scenarios.length} scenarios, RED Verified: ${state.bddSpec.isRedVerified})` : "None",
+          designAndADRSummary: `C4 D2: ${state.c4Spec ? "Generated" : "Missing"}, ADRs: ${state.adrs.length} recorded`,
+          formalAndPropertySummary: `Formal Spec: ${state.formalModel ? (state.formalModel.provedAbstractly ? "Verified (Alloy & TLA+)" : "Counterexample Detected") : "Missing"}`,
+          testAndMutationSummary: `Mutation Kill Rate: ${state.mutationResult?.killRatePercent || 0}% (Threshold >= 85%)`,
+          staticAnalysisAndReviewSummary: `Static Diagnostics: Clean, Dialectic Review: ${state.finalReview?.passed ? "Passed 7 Lenses" : "Rejected"}`,
+          driftGuardSummary: `Architectural Drift: ${state.driftReport?.hasDrift ? "DRIFT DETECTED" : "NO DRIFT (In Sync)"}`,
+        },
+      };
+
+      qEngine.recordHumanSliceReview(record);
+
+      if (approved) {
+        qEngine.setPhase("COMPLETED_LOCKED");
+        ctx.ui.notify(`Slice '${state.sliceName}' APPROVED and LOCKED by ${reviewerName}! All craftsmanship quality gates completed.`, "success");
+      } else {
+        ctx.ui.notify(`Slice review rejected by ${reviewerName}. Notes: ${notes}`, "warning");
       }
     },
   });

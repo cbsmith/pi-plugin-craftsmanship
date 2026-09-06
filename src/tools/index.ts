@@ -209,7 +209,7 @@ export function registerTools(pi: ExtensionAPI): void {
     },
   });
 
-  // Tool 7: Self-Healing TDD RED/GREEN Iteration Engine (Idea #6)
+  // Tool 7: Self-Healing TDD RED/GREEN Iteration Engine
   pi.registerTool({
     name: "craft_auto_tdd_loop",
     label: "Craftsmanship: Self-Healing TDD RED/GREEN Iteration Loop",
@@ -298,11 +298,11 @@ export function registerTools(pi: ExtensionAPI): void {
       qEngine.updateFinalReview(result);
 
       if (result.passed) {
-        qEngine.setPhase("COMPLETED_LOCKED");
+        qEngine.setPhase("GUIDED_HUMAN_SLICE_REVIEW");
       }
 
       let report = `## Post-Implementation Dialectic Code Review & Architectural Drift Report\n`;
-      report += `**Overall Status**: ${result.passed ? "APPROVED & PASSED" : "REJECTED"}\n\n`;
+      report += `**Overall Status**: ${result.passed ? "PASSED (Ready for GUIDED HUMAN SLICE REVIEW)" : "REJECTED"}\n\n`;
       report += `### Architectural Drift Guard:\n`;
       report += `- Has Drift: ${result.driftReport.hasDrift ? "YES (BLOCKER)" : "NO (In Sync)"}\n`;
       if (result.driftReport.undocumentedChanges.length > 0) {
@@ -312,12 +312,68 @@ export function registerTools(pi: ExtensionAPI): void {
       result.dialecticReview.objections.forEach((o) => {
         report += `- [${o.id}] **${o.lens}** (${o.severity}): ${o.title}\n  Critique: ${o.critique}\n  Required Action: ${o.requiredAction}\n`;
       });
+      if (result.passed) {
+        report += `\n### GUIDED HUMAN SLICE REVIEW REQUIRED:\nRun '/craft-slice-review' to conduct the guided slice walkthrough and record human sign-off.`;
+      }
 
       return { content: [{ type: "text", text: report }] };
     },
   });
 
-  // Tool 10: Check Quality Gate Status
+  // Tool 10: Guided Human Slice Review Walkthrough & Sign-off
+  pi.registerTool({
+    name: "craft_guided_human_slice_review",
+    label: "Craftsmanship: Guided Human Slice Review Walkthrough",
+    description: "Generates a structured 6-section guided walkthrough of the slice for human review and records human sign-off to lock completion.",
+    parameters: Type.Object({
+      reviewerName: Type.String({ description: "Name/ID of the human reviewer" }),
+      notes: Type.String({ description: "Human reviewer notes and feedback" }),
+      approved: Type.Boolean({ description: "Human approval decision (true to lock slice)" }),
+    }),
+    execute: async (_id: string, params: any, ctx: ExtensionContext) => {
+      const qEngine = new QualityGateEngine(ctx.cwd);
+      const state = qEngine.getState();
+
+      const record = {
+        sliceName: state.sliceName,
+        reviewerName: params.reviewerName,
+        approved: params.approved,
+        notes: params.notes,
+        timestamp: new Date().toISOString(),
+        walkthroughSections: {
+          bddSummary: state.bddSpec ? `Feature: ${state.bddSpec.featureName} (${state.bddSpec.scenarios.length} scenarios, RED Verified: ${state.bddSpec.isRedVerified})` : "None",
+          designAndADRSummary: `C4 D2: ${state.c4Spec ? "Generated" : "Missing"}, ADRs: ${state.adrs.length} recorded`,
+          formalAndPropertySummary: `Formal Spec: ${state.formalModel ? (state.formalModel.provedAbstractly ? "Verified (Alloy & TLA+)" : "Counterexample Detected") : "Missing"}`,
+          testAndMutationSummary: `Mutation Kill Rate: ${state.mutationResult?.killRatePercent || 0}% (Threshold >= 85%)`,
+          staticAnalysisAndReviewSummary: `Static Diagnostics: Clean, Dialectic Review: ${state.finalReview?.passed ? "Passed 7 Lenses" : "Rejected"}`,
+          driftGuardSummary: `Architectural Drift: ${state.driftReport?.hasDrift ? "DRIFT DETECTED" : "NO DRIFT (In Sync)"}`,
+        },
+      };
+
+      qEngine.recordHumanSliceReview(record);
+
+      if (params.approved) {
+        qEngine.setPhase("COMPLETED_LOCKED");
+      }
+
+      let summary = `## Guided Human Slice Review Record\n`;
+      summary += `- **Slice Name**: ${state.sliceName}\n`;
+      summary += `- **Reviewer**: ${params.reviewerName}\n`;
+      summary += `- **Approval Status**: ${params.approved ? "APPROVED & LOCKED" : "REJECTED"}\n`;
+      summary += `- **Review Notes**: ${params.notes}\n\n`;
+      summary += `### Walkthrough Verification Checkpoints:\n`;
+      summary += `- BDD Acceptance Criteria: ${record.walkthroughSections.bddSummary}\n`;
+      summary += `- C4 Design & ADRs: ${record.walkthroughSections.designAndADRSummary}\n`;
+      summary += `- Formal Specs & Properties: ${record.walkthroughSections.formalAndPropertySummary}\n`;
+      summary += `- Mutation Tests: ${record.walkthroughSections.testAndMutationSummary}\n`;
+      summary += `- Dialectic Code Review: ${record.walkthroughSections.staticAnalysisAndReviewSummary}\n`;
+      summary += `- Architectural Drift Guard: ${record.walkthroughSections.driftGuardSummary}\n`;
+
+      return { content: [{ type: "text", text: summary }] };
+    },
+  });
+
+  // Tool 11: Check Quality Gate Status
   pi.registerTool({
     name: "craft_check_gate",
     label: "Craftsmanship: Check Quality Gate Status",

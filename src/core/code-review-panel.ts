@@ -140,7 +140,7 @@ export class PostImplementationCodeReviewPanel {
       passed,
       objections,
       summary: passed
-        ? "DIALECTIC POST-IMPLEMENTATION CODE REVIEW PASSED: All 7 lenses & static analysis clean!"
+        ? "DIALECTIC POST-IMPLEMENTATION CODE REVIEW PASSED: All 7 lenses & static analysis clean! Ready for GUIDED HUMAN SLICE REVIEW walkthrough."
         : `DIALECTIC CODE REVIEW REJECTED: Found ${blockerCount} BLOCKER objection(s) and ${majorCount} MAJOR objection(s).`,
       reReviewRequired: !passed,
       iterationCount: 1,

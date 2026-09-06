@@ -136,12 +136,18 @@ export class QualityGateEngine {
         }
         return { allowed: true };
 
-      case "COMPLETED_LOCKED":
+      case "GUIDED_HUMAN_SLICE_REVIEW":
         if (!s.finalReview || !s.finalReview.passed) {
           return { allowed: false, reason: "HARD GATE BLOCKED: Post-implementation dialectic code review & static analysis have unresolved BLOCKER objections." };
         }
         if (s.driftReport?.hasDrift) {
           return { allowed: false, reason: "HARD GATE BLOCKED: Architectural drift detected! Code structure conflicts with C4 diagrams and ADRs." };
+        }
+        return { allowed: true };
+
+      case "COMPLETED_LOCKED":
+        if (!s.humanSliceReview || !s.humanSliceReview.approved) {
+          return { allowed: false, reason: "HARD GATE BLOCKED: Slice requires a GUIDED HUMAN REVIEW walkthrough and sign-off before completion!" };
         }
         return { allowed: true };
 
@@ -217,6 +223,11 @@ export class QualityGateEngine {
 
   public updateFinalReview(res: QualityGateState["finalReview"]): void {
     this.state.finalReview = res;
+    this.saveState();
+  }
+
+  public recordHumanSliceReview(record: QualityGateState["humanSliceReview"]): void {
+    this.state.humanSliceReview = record;
     this.saveState();
   }
 }
