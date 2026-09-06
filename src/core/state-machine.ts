@@ -22,6 +22,9 @@ export class QualityGateEngine {
         const parsed = JSON.parse(raw);
         return {
           exemptions: [],
+          adrs: [],
+          rfcs: [],
+          tddCycles: [],
           ...parsed,
         };
       } catch {
@@ -40,33 +43,41 @@ export class QualityGateEngine {
   }
 
   public saveState(): void {
-    fs.writeFileSync(this.stateFilePath, JSON.stringify(this.state, null, 2), "utf-8");
+    // Atomic Write: Write to temporary file then rename to prevent state corruption on process interruption
+    const tmpPath = `${this.stateFilePath}.tmp`;
+    fs.writeFileSync(tmpPath, JSON.stringify(this.state, null, 2), "utf-8");
+    fs.renameSync(tmpPath, this.stateFilePath);
   }
 
   public getState(): QualityGateState {
+    this.state = this.loadState(); // Ensure fresh state reloaded from disk
     return this.state;
   }
 
   public setPhase(phase: WorkflowPhase): void {
+    this.getState();
     this.state.currentPhase = phase;
     this.saveState();
   }
 
   public setSliceName(sliceName: string): void {
+    this.getState();
     this.state.sliceName = sliceName;
     this.saveState();
   }
 
   public setHardGateEnforced(enforced: boolean): void {
+    this.getState();
     this.state.hardGateEnforced = enforced;
     this.saveState();
   }
 
   public hasApprovedExemption(gate: ExemptableGate): boolean {
-    return (this.state.exemptions || []).some((e) => e.gate === gate && e.humanApproved);
+    return (this.getState().exemptions || []).some((e) => e.gate === gate && e.humanApproved);
   }
 
   public recordExemption(exemption: QualityGateExemption): void {
+    this.getState();
     if (!this.state.exemptions) {
       this.state.exemptions = [];
     }
@@ -80,7 +91,7 @@ export class QualityGateEngine {
   }
 
   public canTransitionTo(targetPhase: WorkflowPhase): { allowed: boolean; reason?: string } {
-    const s = this.state;
+    const s = this.getState();
 
     switch (targetPhase) {
       case "BDD_SPECIFICATION":
@@ -189,6 +200,7 @@ export class QualityGateEngine {
   }
 
   public updateBDDSpec(update?: Partial<QualityGateState["bddSpec"]>): void {
+    this.getState();
     const u = update || {};
     this.state.bddSpec = {
       featureName: u.featureName || this.state.bddSpec?.featureName || "Feature",
@@ -204,26 +216,31 @@ export class QualityGateEngine {
   }
 
   public updateTestReview(review: QualityGateState["testReview"]): void {
+    this.getState();
     this.state.testReview = review;
     this.saveState();
   }
 
   public updateC4Spec(c4: QualityGateState["c4Spec"]): void {
+    this.getState();
     this.state.c4Spec = c4;
     this.saveState();
   }
 
   public updateFormalModel(model: QualityGateState["formalModel"]): void {
+    this.getState();
     this.state.formalModel = model;
     this.saveState();
   }
 
   public addADR(adr: QualityGateState["adrs"][number]): void {
+    this.getState();
     this.state.adrs.push(adr);
     this.saveState();
   }
 
   public addOrUpdateRFC(rfc: QualityGateState["rfcs"][number]): void {
+    this.getState();
     const idx = this.state.rfcs.findIndex((r) => r.id === rfc.id);
     if (idx >= 0) {
       this.state.rfcs[idx] = rfc;
@@ -234,6 +251,7 @@ export class QualityGateEngine {
   }
 
   public addTDDCycle(cycle: QualityGateState["tddCycles"][number]): void {
+    this.getState();
     const idx = this.state.tddCycles.findIndex((c) => c.unitTestFilePath === cycle.unitTestFilePath);
     if (idx >= 0) {
       this.state.tddCycles[idx] = cycle;
@@ -244,21 +262,25 @@ export class QualityGateEngine {
   }
 
   public updateMutationResult(res: QualityGateState["mutationResult"]): void {
+    this.getState();
     this.state.mutationResult = res;
     this.saveState();
   }
 
   public updateDriftReport(report: QualityGateState["driftReport"]): void {
+    this.getState();
     this.state.driftReport = report;
     this.saveState();
   }
 
   public updateFinalReview(res: QualityGateState["finalReview"]): void {
+    this.getState();
     this.state.finalReview = res;
     this.saveState();
   }
 
   public recordHumanSliceReview(record: QualityGateState["humanSliceReview"]): void {
+    this.getState();
     this.state.humanSliceReview = record;
     this.saveState();
   }

@@ -52,15 +52,19 @@ export class PostImplementationCodeReviewPanel {
       });
     }
 
-    // Lens 2: Simplicity (< 400 LOC)
-    const lineCount = codeContent.split("\n").length;
-    if (lineCount > 400) {
+    // Lens 2: Simplicity (Effective Source Lines of Code - SLOC < 400)
+    const sloc = codeContent
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0 && !line.startsWith("//") && !line.startsWith("/*") && !line.startsWith("*") && !line.startsWith("#")).length;
+
+    if (sloc > 400) {
       objections.push({
         id: "REV-OBJ-SIMP-01",
         lens: "Simplicity",
         severity: "BLOCKER",
-        title: "Module Exceeds 400 LOC Limit",
-        critique: `Implementation is ${lineCount} lines of code, violating the mandatory <400 LOC per slice constraint.`,
+        title: "Module Exceeds 400 SLOC Limit",
+        critique: `Implementation is ${sloc} Effective Source Lines of Code (SLOC), violating the mandatory <400 SLOC per slice constraint.`,
         requiredAction: "Refactor module by extracting helper classes into separate sub-files.",
         addressed: false,
       });

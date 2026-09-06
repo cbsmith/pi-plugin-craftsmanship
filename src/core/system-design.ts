@@ -23,13 +23,13 @@ export class SystemDesignEngine {
         if (classNameMatch) {
           classNameMatch.forEach((c) => components.push(c.replace("class ", "").trim()));
         }
-        const importMatches = content.match(/import\s+.*from\s+['"](.*)['"]/g);
+        const importMatches = content.match(/(import\s+.*from\s+['"].*['"]|require\(['"].*['"]\)|from\s+\w+\s+import|use\s+[\w:]+)/g);
         if (importMatches) {
           importMatches.forEach((imp) => {
-            const moduleName = imp.split("from")[1].replace(/['";\s]/g, "");
             const baseFile = path.basename(file, path.extname(file));
-            relationships.push({ from: baseFile, to: moduleName });
-          })
+            const cleanModule = imp.replace(/['";()]/g, "").split(/\s+/).pop() || "Module";
+            relationships.push({ from: baseFile, to: cleanModule });
+          });
         }
       }
     });

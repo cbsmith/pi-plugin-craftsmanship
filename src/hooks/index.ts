@@ -1,3 +1,4 @@
+import * as path from "path";
 import { QualityGateEngine } from "../core/state-machine";
 import { ExtensionAPI, ExtensionContext } from "../types";
 
@@ -19,14 +20,31 @@ export function registerHooks(pi: ExtensionAPI): void {
     const toolName = event.name || event.toolName;
     const args = event.parameters || event.args || {};
 
-    // Check if writing or editing source implementation files
+    // Intercept file write/edit operations
     if ((toolName === "write_to_file" || toolName === "replace_file_content" || toolName === "multi_replace_file_content") && args.TargetFile) {
       const targetFile = String(args.TargetFile);
+      const relPath = path.relative(ctx.cwd, targetFile);
 
-      const isSourceCode =
-        (targetFile.includes("/src/") || targetFile.includes("/lib/")) &&
-        !targetFile.includes(".test.") &&
-        !targetFile.includes(".spec.");
+      // Non-implementation paths to ignore
+      const isExemptDir =
+        relPath.startsWith("features/") ||
+        relPath.startsWith("specs/") ||
+        relPath.startsWith("docs/") ||
+        relPath.startsWith("tests/") ||
+        relPath.startsWith(".craftsmanship/") ||
+        relPath.startsWith("node_modules/") ||
+        relPath.startsWith("dist/") ||
+        relPath.startsWith(".git/");
+
+      const isTestFile =
+        relPath.includes(".test.") ||
+        relPath.includes(".spec.") ||
+        relPath.includes("_test.") ||
+        relPath.includes("test_");
+
+      const isCodeExtension = /\.(ts|js|jsx|tsx|py|go|rs|java|cpp|c|cs|rb|php|kt|swift)$/i.test(relPath);
+
+      const isSourceCode = !isExemptDir && !isTestFile && isCodeExtension;
 
       if (isSourceCode) {
         const qEngine = new QualityGateEngine(ctx.cwd);
@@ -37,7 +55,7 @@ export function registerHooks(pi: ExtensionAPI): void {
 
           // HARD GATE ENFORCEMENT: Throw error to reject tool call execution
           throw new Error(
-            `[CRAFTSMANSHIP HARD GATE BLOCK]: Attempting to write implementation code in '${targetFile}' before completing required engineering phases. ${check.reason}`
+            `[CRAFTSMANSHIP HARD GATE BLOCK]: Attempting to write implementation code in '${relPath}' before completing required engineering phases. ${check.reason}`
           );
         }
       }
