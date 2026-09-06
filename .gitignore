@@ -1,0 +1,5 @@
+node_modules/
+dist/
+.craftsmanship/
+tmp_test_project/
+*.log

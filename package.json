@@ -1,0 +1,39 @@
+{
+  "name": "pi-plugin-craftsmanship",
+  "version": "1.0.0",
+  "description": "Pi Coding Agent extension enforcing BDD, RED/GREEN TDD, C4 D2 diagrams, Alloy/TLA+ formal verification, ADR/RFC governance with multi-lens reviews, mutation testing, and static analysis.",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc --watch",
+    "test": "vitest run",
+    "lint": "eslint src/ --ext .ts"
+  },
+  "keywords": [
+    "pi-agent-extension",
+    "pi-coding-agent",
+    "craftsmanship",
+    "tdd",
+    "bdd",
+    "gherkin",
+    "c4-diagrams",
+    "d2",
+    "alloy",
+    "tla-plus",
+    "adr",
+    "rfc",
+    "mutation-testing",
+    "static-analysis"
+  ],
+  "author": "Antigravity Engineering",
+  "license": "MIT",
+  "dependencies": {
+    "@sinclair/typebox": "^0.34.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.5.4",
+    "vitest": "^2.0.0"
+  }
+}
