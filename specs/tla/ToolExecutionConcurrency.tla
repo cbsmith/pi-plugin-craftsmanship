@@ -3,155 +3,118 @@ EXTENDS Naturals, Sequences, FiniteSets
 
 CONSTANTS Tools, ExecutionMode
 
-VARIABLES toolState, lockOwner, lockQueue, activeWriters, activeUIPrompts, completedTools
+VARIABLES toolState, fileLockOwner, fileLockQueue, uiPromptOwner, uiQueue, activeWriters, activeUIPrompts, completedTools
 
-Vars == <<toolState, lockOwner, lockQueue, activeWriters, activeUIPrompts, completedTools>>
+Vars == <<toolState, fileLockOwner, fileLockQueue, uiPromptOwner, uiQueue, activeWriters, activeUIPrompts, completedTools>>
 
-ToolStates == {"IDLE", "QUEUED", "RUNNING", "WRITING_STATE", "PROMPTING_UI", "COMPLETED", "STALLED"}
-Modes == {"PARALLEL", "SEQUENTIAL"}
+ToolStates == {"IDLE", "RUNNING", "WAITING_FILE_LOCK", "WRITING_STATE", "WAITING_UI_LOCK", "PROMPTING_UI", "COMPLETED"}
+Modes == {"UNSAFE_PARALLEL", "GLOBAL_SEQUENTIAL", "FINE_GRAINED_PARALLEL"}
 
 TypeOK ==
   /\ ExecutionMode \in Modes
   /\ toolState \in [Tools -> ToolStates]
-  /\ lockOwner \in Tools \cup {"NONE"}
-  /\ lockQueue \in Seq(Tools)
+  /\ fileLockOwner \in Tools \cup {"NONE"}
+  /\ fileLockQueue \in Seq(Tools)
+  /\ uiPromptOwner \in Tools \cup {"NONE"}
+  /\ uiQueue \in Seq(Tools)
   /\ activeWriters \in 0..Cardinality(Tools)
   /\ activeUIPrompts \in 0..Cardinality(Tools)
   /\ completedTools \subseteq Tools
 
 Init ==
   /\ toolState = [t \in Tools |-> "IDLE"]
-  /\ lockOwner = "NONE"
-  /\ lockQueue = <<>>
+  /\ fileLockOwner = "NONE"
+  /\ fileLockQueue = <<>>
+  /\ uiPromptOwner = "NONE"
+  /\ uiQueue = <<>>
   /\ activeWriters = 0
   /\ activeUIPrompts = 0
   /\ completedTools = {}
 
 (---------------------------------------------------------------------------------------)
-(* Actions for PARALLEL Execution Mode (Unserialized - Old Buggy Behavior)             *)
+(* FINE_GRAINED_PARALLEL Execution Mode (Internal File Lock + UI Prompt Queueing)     *)
 (---------------------------------------------------------------------------------------)
 
-DispatchParallel(t) ==
-  /\ ExecutionMode = "PARALLEL"
+DispatchFineGrained(t) ==
+  /\ ExecutionMode = "FINE_GRAINED_PARALLEL"
   /\ toolState[t] = "IDLE"
   /\ toolState' = [toolState EXCEPT ![t] = "RUNNING"]
-  /\ UNCHANGED <<lockOwner, lockQueue, activeWriters, activeUIPrompts, completedTools>>
+  /\ UNCHANGED <<fileLockOwner, fileLockQueue, uiPromptOwner, uiQueue, activeWriters, activeUIPrompts, completedTools>>
 
-StartWriteParallel(t) ==
-  /\ ExecutionMode = "PARALLEL"
+RequestFileLockFineGrained(t) ==
+  /\ ExecutionMode = "FINE_GRAINED_PARALLEL"
   /\ toolState[t] = "RUNNING"
-  /\ toolState' = [toolState EXCEPT ![t] = "WRITING_STATE"]
-  /\ activeWriters' = activeWriters + 1
-  /\ UNCHANGED <<lockOwner, lockQueue, activeUIPrompts, completedTools>>
+  /\ toolState' = [toolState EXCEPT ![t] = "WAITING_FILE_LOCK"]
+  /\ fileLockQueue' = Append(fileLockQueue, t)
+  /\ UNCHANGED <<fileLockOwner, uiPromptOwner, uiQueue, activeWriters, activeUIPrompts, completedTools>>
 
-FinishWriteParallel(t) ==
-  /\ ExecutionMode = "PARALLEL"
+AcquireFileLockFineGrained ==
+  /\ ExecutionMode = "FINE_GRAINED_PARALLEL"
+  /\ fileLockOwner = "NONE"
+  /\ Len(fileLockQueue) > 0
+  /\ LET nextTool == Head(fileLockQueue) IN
+       /\ fileLockOwner' = nextTool
+       /\ fileLockQueue' = Tail(fileLockQueue)
+       /\ toolState' = [toolState EXCEPT ![nextTool] = "WRITING_STATE"]
+       /\ activeWriters' = activeWriters + 1
+       /\ UNCHANGED <<uiPromptOwner, uiQueue, activeUIPrompts, completedTools>>
+
+ReleaseFileLockFineGrained(t) ==
+  /\ ExecutionMode = "FINE_GRAINED_PARALLEL"
+  /\ fileLockOwner = t
   /\ toolState[t] = "WRITING_STATE"
+  /\ fileLockOwner' = "NONE"
   /\ toolState' = [toolState EXCEPT ![t] = "RUNNING"]
   /\ activeWriters' = activeWriters - 1
-  /\ UNCHANGED <<lockOwner, lockQueue, activeUIPrompts, completedTools>>
+  /\ UNCHANGED <<fileLockQueue, uiPromptOwner, uiQueue, activeUIPrompts, completedTools>>
 
-PromptUIParallel(t) ==
-  /\ ExecutionMode = "PARALLEL"
+EnqueueUIPromptFineGrained(t) ==
+  /\ ExecutionMode = "FINE_GRAINED_PARALLEL"
   /\ toolState[t] = "RUNNING"
-  /\ toolState' = [toolState EXCEPT ![t] = "PROMPTING_UI"]
-  /\ activeUIPrompts' = activeUIPrompts + 1
-  /\ UNCHANGED <<lockOwner, lockQueue, activeWriters, completedTools>>
+  /\ toolState' = [toolState EXCEPT ![t] = "WAITING_UI_LOCK"]
+  /\ uiQueue' = Append(uiQueue, t)
+  /\ UNCHANGED <<fileLockOwner, fileLockQueue, uiPromptOwner, activeWriters, activeUIPrompts, completedTools>>
 
-FinishUIParallel(t) ==
-  /\ ExecutionMode = "PARALLEL"
+AcquireUIPromptFineGrained ==
+  /\ ExecutionMode = "FINE_GRAINED_PARALLEL"
+  /\ uiPromptOwner = "NONE"
+  /\ Len(uiQueue) > 0
+  /\ LET nextTool == Head(uiQueue) IN
+       /\ uiPromptOwner' = nextTool
+       /\ uiQueue' = Tail(uiQueue)
+       /\ toolState' = [toolState EXCEPT ![nextTool] = "PROMPTING_UI"]
+       /\ activeUIPrompts' = activeUIPrompts + 1
+       /\ UNCHANGED <<fileLockOwner, fileLockQueue, activeWriters, completedTools>>
+
+ReleaseUIPromptFineGrained(t) ==
+  /\ ExecutionMode = "FINE_GRAINED_PARALLEL"
+  /\ uiPromptOwner = t
   /\ toolState[t] = "PROMPTING_UI"
+  /\ uiPromptOwner' = "NONE"
   /\ toolState' = [toolState EXCEPT ![t] = "RUNNING"]
   /\ activeUIPrompts' = activeUIPrompts - 1
-  /\ UNCHANGED <<lockOwner, lockQueue, activeWriters, completedTools>>
+  /\ UNCHANGED <<fileLockOwner, fileLockQueue, uiQueue, activeWriters, completedTools>>
 
-CompleteParallel(t) ==
-  /\ ExecutionMode = "PARALLEL"
+CompleteFineGrained(t) ==
+  /\ ExecutionMode = "FINE_GRAINED_PARALLEL"
   /\ toolState[t] = "RUNNING"
   /\ toolState' = [toolState EXCEPT ![t] = "COMPLETED"]
   /\ completedTools' = completedTools \cup {t}
-  /\ UNCHANGED <<lockOwner, lockQueue, activeWriters, activeUIPrompts>>
-
-(---------------------------------------------------------------------------------------)
-(* Actions for SEQUENTIAL Execution Mode (Serialized - Fixed Behavior)                  *)
-(---------------------------------------------------------------------------------------)
-
-EnqueueSequential(t) ==
-  /\ ExecutionMode = "SEQUENTIAL"
-  /\ toolState[t] = "IDLE"
-  /\ toolState' = [toolState EXCEPT ![t] = "QUEUED"]
-  /\ lockQueue' = Append(lockQueue, t)
-  /\ UNCHANGED <<lockOwner, activeWriters, activeUIPrompts, completedTools>>
-
-AcquireLockSequential ==
-  /\ ExecutionMode = "SEQUENTIAL"
-  /\ lockOwner = "NONE"
-  /\ Len(lockQueue) > 0
-  /\ LET nextTool == Head(lockQueue) IN
-       /\ lockOwner' = nextTool
-       /\ lockQueue' = Tail(lockQueue)
-       /\ toolState' = [toolState EXCEPT ![nextTool] = "RUNNING"]
-       /\ UNCHANGED <<activeWriters, activeUIPrompts, completedTools>>
-
-StartWriteSequential(t) ==
-  /\ ExecutionMode = "SEQUENTIAL"
-  /\ lockOwner = t
-  /\ toolState[t] = "RUNNING"
-  /\ toolState' = [toolState EXCEPT ![t] = "WRITING_STATE"]
-  /\ activeWriters' = activeWriters + 1
-  /\ UNCHANGED <<lockOwner, lockQueue, activeUIPrompts, completedTools>>
-
-FinishWriteSequential(t) ==
-  /\ ExecutionMode = "SEQUENTIAL"
-  /\ lockOwner = t
-  /\ toolState[t] = "WRITING_STATE"
-  /\ toolState' = [toolState EXCEPT ![t] = "RUNNING"]
-  /\ activeWriters' = activeWriters - 1
-  /\ UNCHANGED <<lockOwner, lockQueue, activeUIPrompts, completedTools>>
-
-PromptUISequential(t) ==
-  /\ ExecutionMode = "SEQUENTIAL"
-  /\ lockOwner = t
-  /\ toolState[t] = "RUNNING"
-  /\ toolState' = [toolState EXCEPT ![t] = "PROMPTING_UI"]
-  /\ activeUIPrompts' = activeUIPrompts + 1
-  /\ UNCHANGED <<lockOwner, lockQueue, activeWriters, completedTools>>
-
-FinishUISequential(t) ==
-  /\ ExecutionMode = "SEQUENTIAL"
-  /\ lockOwner = t
-  /\ toolState[t] = "PROMPTING_UI"
-  /\ toolState' = [toolState EXCEPT ![t] = "RUNNING"]
-  /\ activeUIPrompts' = activeUIPrompts - 1
-  /\ UNCHANGED <<lockOwner, lockQueue, activeWriters, completedTools>>
-
-ReleaseLockAndCompleteSequential(t) ==
-  /\ ExecutionMode = "SEQUENTIAL"
-  /\ lockOwner = t
-  /\ toolState[t] = "RUNNING"
-  /\ toolState' = [toolState EXCEPT ![t] = "COMPLETED"]
-  /\ lockOwner' = "NONE"
-  /\ completedTools' = completedTools \cup {t}
-  /\ UNCHANGED <<lockQueue, activeWriters, activeUIPrompts>>
+  /\ UNCHANGED <<fileLockOwner, fileLockQueue, uiPromptOwner, uiQueue, activeWriters, activeUIPrompts>>
 
 TerminalStutter ==
   /\ completedTools = Tools
   /\ UNCHANGED Vars
 
 Next ==
-  \/ (\E t \in Tools : DispatchParallel(t))
-  \/ (\E t \in Tools : StartWriteParallel(t))
-  \/ (\E t \in Tools : FinishWriteParallel(t))
-  \/ (\E t \in Tools : PromptUIParallel(t))
-  \/ (\E t \in Tools : FinishUIParallel(t))
-  \/ (\E t \in Tools : CompleteParallel(t))
-  \/ (\E t \in Tools : EnqueueSequential(t))
-  \/ AcquireLockSequential
-  \/ (\E t \in Tools : StartWriteSequential(t))
-  \/ (\E t \in Tools : FinishWriteSequential(t))
-  \/ (\E t \in Tools : PromptUISequential(t))
-  \/ (\E t \in Tools : FinishUISequential(t))
-  \/ (\E t \in Tools : ReleaseLockAndCompleteSequential(t))
+  \/ (\E t \in Tools : DispatchFineGrained(t))
+  \/ (\E t \in Tools : RequestFileLockFineGrained(t))
+  \/ AcquireFileLockFineGrained
+  \/ (\E t \in Tools : ReleaseFileLockFineGrained(t))
+  \/ (\E t \in Tools : EnqueueUIPromptFineGrained(t))
+  \/ AcquireUIPromptFineGrained
+  \/ (\E t \in Tools : ReleaseUIPromptFineGrained(t))
+  \/ (\E t \in Tools : CompleteFineGrained(t))
   \/ TerminalStutter
 
 Spec == Init /\ [][Next]_Vars
@@ -166,13 +129,10 @@ NoConcurrentStateWrites == activeWriters <= 1
 (* Safety Invariant 2: At most one interactive UI prompt can be active simultaneously *)
 NoConcurrentUIPrompts == activeUIPrompts <= 1
 
-(* Safety Invariant 3: In SEQUENTIAL mode, at most one tool is RUNNING, WRITING, or PROMPTING *)
-StrictMutexIsolation ==
-  ExecutionMode = "SEQUENTIAL" =>
-    Cardinality({t \in Tools : toolState[t] \in {"RUNNING", "WRITING_STATE", "PROMPTING_UI"}}) <= 1
+(* Safety Invariant 3: Multiple tools can run concurrently, but file locks are exclusive *)
+ExclusiveFileLock == fileLockOwner /= "NONE" => toolState[fileLockOwner] = "WRITING_STATE"
 
-(* Safety Invariant 4: No state mutation while UI prompt is active *)
-NoStateWriteDuringUIPrompt ==
-  ~(activeWriters > 0 /\ activeUIPrompts > 0)
+(* Safety Invariant 4: Multiple tools can run concurrently, but UI prompt modals are exclusive *)
+ExclusiveUIPromptModal == uiPromptOwner /= "NONE" => toolState[uiPromptOwner] = "PROMPTING_UI"
 
 =============================================================================

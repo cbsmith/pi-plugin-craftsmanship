@@ -1,15 +1,16 @@
 import { describe, it, expect } from "vitest";
 
 /**
- * Simulator modeling tool execution concurrency under PARALLEL vs SEQUENTIAL modes.
+ * Simulator modeling tool execution concurrency under UNSAFE_PARALLEL, GLOBAL_SEQUENTIAL,
+ * and FINE_GRAINED_PARALLEL modes.
  * Validates TLA+ Safety Invariants:
  *  - NoConcurrentStateWrites (activeWriters <= 1)
  *  - NoConcurrentUIPrompts (activeUIPrompts <= 1)
- *  - StrictMutexIsolation (activeRunningTools <= 1 in SEQUENTIAL mode)
- *  - NoStateWriteDuringUIPrompt (~(activeWriters > 0 && activeUIPrompts > 0))
+ *  - ExclusiveFileLock
+ *  - ExclusiveUIPromptModal
  */
 
-type ExecutionMode = "PARALLEL" | "SEQUENTIAL";
+type ExecutionMode = "UNSAFE_PARALLEL" | "GLOBAL_SEQUENTIAL" | "FINE_GRAINED_PARALLEL";
 type ToolActionType = "DISPATCH" | "START_WRITE" | "FINISH_WRITE" | "PROMPT_UI" | "FINISH_UI" | "COMPLETE";
 
 interface ToolAction {
@@ -19,9 +20,11 @@ interface ToolAction {
 
 class ExecutionSimulator {
   private mode: ExecutionMode;
-  private queue: string[] = [];
-  private activeTool: string | null = null;
-  private toolStates: Record<string, "IDLE" | "QUEUED" | "RUNNING" | "WRITING_STATE" | "PROMPTING_UI" | "COMPLETED"> = {};
+  private fileLockOwner: string | null = null;
+  private fileLockQueue: string[] = [];
+  private uiPromptOwner: string | null = null;
+  private uiQueue: string[] = [];
+  private toolStates: Record<string, "IDLE" | "RUNNING" | "WAITING_FILE_LOCK" | "WRITING_STATE" | "WAITING_UI_LOCK" | "PROMPTING_UI" | "COMPLETED"> = {};
   
   public activeWriters = 0;
   public activeUIPrompts = 0;
@@ -40,10 +43,10 @@ class ExecutionSimulator {
     if (!(toolId in this.toolStates)) return;
     const state = this.toolStates[toolId];
 
-    if (this.mode === "SEQUENTIAL") {
-      this.stepSequential(toolId, type, state);
-    } else {
-      this.stepParallel(toolId, type, state);
+    if (this.mode === "FINE_GRAINED_PARALLEL") {
+      this.stepFineGrained(toolId, type, state);
+    } else if (this.mode === "UNSAFE_PARALLEL") {
+      this.stepUnsafeParallel(toolId, type, state);
     }
 
     // Evaluate TLA+ Invariants after each step
@@ -53,79 +56,75 @@ class ExecutionSimulator {
     if (this.activeUIPrompts > 1) {
       this.violations.push(`NoConcurrentUIPrompts violated: activeUIPrompts = ${this.activeUIPrompts}`);
     }
-    if (this.mode === "SEQUENTIAL" && this.activeRunningTools > 1) {
-      this.violations.push(`StrictMutexIsolation violated: activeRunningTools = ${this.activeRunningTools}`);
-    }
-    if (this.activeWriters > 0 && this.activeUIPrompts > 0) {
-      this.violations.push(`NoStateWriteDuringUIPrompt violated: activeWriters=${this.activeWriters}, activeUIPrompts=${this.activeUIPrompts}`);
-    }
   }
 
-  private stepParallel(toolId: string, type: ToolActionType, state: string): void {
+  private stepFineGrained(toolId: string, type: ToolActionType, state: string): void {
     if (type === "DISPATCH" && state === "IDLE") {
       this.toolStates[toolId] = "RUNNING";
       this.activeRunningTools++;
     } else if (type === "START_WRITE" && state === "RUNNING") {
-      this.toolStates[toolId] = "WRITING_STATE";
-      this.activeWriters++;
-    } else if (type === "FINISH_WRITE" && state === "WRITING_STATE") {
+      this.toolStates[toolId] = "WAITING_FILE_LOCK";
+      this.fileLockQueue.push(toolId);
+      this.tryAcquireFileLock();
+    } else if (type === "FINISH_WRITE" && this.fileLockOwner === toolId && state === "WRITING_STATE") {
       this.toolStates[toolId] = "RUNNING";
       this.activeWriters--;
+      this.fileLockOwner = null;
+      this.tryAcquireFileLock();
     } else if (type === "PROMPT_UI" && state === "RUNNING") {
-      this.toolStates[toolId] = "PROMPTING_UI";
-      this.activeUIPrompts++;
-    } else if (type === "FINISH_UI" && state === "PROMPTING_UI") {
+      this.toolStates[toolId] = "WAITING_UI_LOCK";
+      this.uiQueue.push(toolId);
+      this.tryAcquireUILock();
+    } else if (type === "FINISH_UI" && this.uiPromptOwner === toolId && state === "PROMPTING_UI") {
       this.toolStates[toolId] = "RUNNING";
       this.activeUIPrompts--;
+      this.uiPromptOwner = null;
+      this.tryAcquireUILock();
     } else if (type === "COMPLETE" && state === "RUNNING") {
       this.toolStates[toolId] = "COMPLETED";
       this.activeRunningTools--;
     }
   }
 
-  private stepSequential(toolId: string, type: ToolActionType, state: string): void {
-    if (type === "DISPATCH" && state === "IDLE") {
-      this.toolStates[toolId] = "QUEUED";
-      this.queue.push(toolId);
-      this.tryAcquireLock();
-    } else if (type === "START_WRITE" && this.activeTool === toolId && state === "RUNNING") {
-      this.toolStates[toolId] = "WRITING_STATE";
+  private tryAcquireFileLock(): void {
+    if (this.fileLockOwner === null && this.fileLockQueue.length > 0) {
+      this.fileLockOwner = this.fileLockQueue.shift()!;
+      this.toolStates[this.fileLockOwner] = "WRITING_STATE";
       this.activeWriters++;
-    } else if (type === "FINISH_WRITE" && this.activeTool === toolId && state === "WRITING_STATE") {
-      this.toolStates[toolId] = "RUNNING";
-      this.activeWriters--;
-    } else if (type === "PROMPT_UI" && this.activeTool === toolId && state === "RUNNING") {
-      this.toolStates[toolId] = "PROMPTING_UI";
-      this.activeUIPrompts++;
-    } else if (type === "FINISH_UI" && this.activeTool === toolId && state === "PROMPTING_UI") {
-      this.toolStates[toolId] = "RUNNING";
-      this.activeUIPrompts--;
-    } else if (type === "COMPLETE" && this.activeTool === toolId && state === "RUNNING") {
-      this.toolStates[toolId] = "COMPLETED";
-      this.activeRunningTools--;
-      this.activeTool = null;
-      this.tryAcquireLock();
     }
   }
 
-  private tryAcquireLock(): void {
-    if (this.activeTool === null && this.queue.length > 0) {
-      this.activeTool = this.queue.shift()!;
-      this.toolStates[this.activeTool] = "RUNNING";
+  private tryAcquireUILock(): void {
+    if (this.uiPromptOwner === null && this.uiQueue.length > 0) {
+      this.uiPromptOwner = this.uiQueue.shift()!;
+      this.toolStates[this.uiPromptOwner] = "PROMPTING_UI";
+      this.activeUIPrompts++;
+    }
+  }
+
+  private stepUnsafeParallel(toolId: string, type: ToolActionType, state: string): void {
+    if (type === "DISPATCH" && state === "IDLE") {
+      this.toolStates[toolId] = "RUNNING";
       this.activeRunningTools++;
+    } else if (type === "START_WRITE" && state === "RUNNING") {
+      this.toolStates[toolId] = "WRITING_STATE";
+      this.activeWriters++;
+    } else if (type === "PROMPT_UI" && state === "RUNNING") {
+      this.toolStates[toolId] = "PROMPTING_UI";
+      this.activeUIPrompts++;
     }
   }
 }
 
 describe("Tool Execution Concurrency Property-Based Invariant Verification", () => {
-  it("proves SEQUENTIAL execution mode satisfies all TLA+ invariants across generated action sequences", () => {
+  it("proves FINE_GRAINED_PARALLEL execution mode satisfies all TLA+ invariants across random action sequences", () => {
     const tools = ["tool_analyze", "tool_exemption", "tool_check_gate"];
     const actionTypes: ToolActionType[] = ["DISPATCH", "START_WRITE", "FINISH_WRITE", "PROMPT_UI", "FINISH_UI", "COMPLETE"];
 
     // Generate 100 random action sequences
     for (let i = 0; i < 100; i++) {
-      const sim = new ExecutionSimulator(tools, "SEQUENTIAL");
-      const numActions = 20 + (i % 30);
+      const sim = new ExecutionSimulator(tools, "FINE_GRAINED_PARALLEL");
+      const numActions = 30 + (i % 20);
       for (let j = 0; j < numActions; j++) {
         const toolId = tools[(i * 17 + j * 7) % tools.length];
         const type = actionTypes[(i * 3 + j * 11) % actionTypes.length];
@@ -135,9 +134,9 @@ describe("Tool Execution Concurrency Property-Based Invariant Verification", () 
     }
   });
 
-  it("verifies PARALLEL execution mode triggers invariant violations under concurrent requests", () => {
+  it("verifies UNSAFE_PARALLEL execution mode triggers invariant violations under concurrent requests", () => {
     const tools = ["tool_analyze", "tool_exemption"];
-    const sim = new ExecutionSimulator(tools, "PARALLEL");
+    const sim = new ExecutionSimulator(tools, "UNSAFE_PARALLEL");
 
     sim.step({ toolId: "tool_analyze", type: "DISPATCH" });
     sim.step({ toolId: "tool_exemption", type: "DISPATCH" });
