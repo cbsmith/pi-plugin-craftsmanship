@@ -310,6 +310,19 @@ describe('${sliceName} Stateful Property Verification', () => {
     }
 
     sourceFiles.forEach((f) => {
+      // Exclude specification and documentation files (.d2, .md, .json, specs/, docs/) from source code drift inspection
+      if (
+        f.endsWith(".d2") ||
+        f.endsWith(".md") ||
+        f.endsWith(".json") ||
+        f.endsWith(".cfg") ||
+        f.includes("/specs/") ||
+        f.includes("/docs/") ||
+        f.includes("/.craftsmanship/")
+      ) {
+        return;
+      }
+
       if (fs.existsSync(f)) {
         const content = fs.readFileSync(f, "utf-8");
         const fileName = path.basename(f);
