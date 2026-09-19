@@ -67,7 +67,7 @@ export function registerTools(pi: ExtensionAPI): void {
     name: "craft_review_tests",
     label: "Craftsmanship: Pre-Implementation Dialectic Test Review",
     description: "Evaluates BDD & test suites using dialectic critique (BLOCKER/MAJOR/MINOR objections across 4 lenses) and enforces <400 LOC slice limit.",
-    executionMode: "sequential",
+    executionMode: "parallel",
     parameters: Type.Object({
       estimatedLOC: Type.Number({ description: "Target LOC for this problem slice (must be <400)", default: 250 }),
       testCode: Type.Optional(Type.String({ description: "Optional raw test file code content for static inspection" })),
@@ -152,7 +152,7 @@ export function registerTools(pi: ExtensionAPI): void {
     name: "craft_generate_c4_d2",
     label: "Craftsmanship: Code-Generated C4 D2 Diagrams",
     description: "Constructs Context, Container, Component, and Code level C4 architecture diagrams directly from source file AST structures formatted in D2 syntax.",
-    executionMode: "sequential",
+    executionMode: "parallel",
     parameters: Type.Object({
       sliceName: Type.String({ description: "Name of system slice" }),
       sourceFiles: Type.Optional(Type.Array(Type.String(), { description: "Source files to parse for AST diagram extraction" })),
@@ -175,7 +175,7 @@ export function registerTools(pi: ExtensionAPI): void {
     name: "craft_generate_formal_spec",
     label: "Craftsmanship: Formal Methods (Alloy, TLA+, & Stateful Property Tests)",
     description: "Generates declarative Alloy models (.als), TLA+ state specs (.tla/.cfg), stateful fast-check property tests, and checks formal completeness & state counterexample traces.",
-    executionMode: "sequential",
+    executionMode: "parallel",
     parameters: Type.Object({
       sliceName: Type.String({ description: "Name of system slice" }),
       invariants: Type.Array(Type.String(), { description: "Safety & liveness state invariants to prove" }),
@@ -343,7 +343,7 @@ export function registerTools(pi: ExtensionAPI): void {
     name: "craft_run_code_review",
     label: "Craftsmanship: Dialectic Code Review & Drift Guard",
     description: "Evaluates implementation against static analysis, 7 dialectic lenses, and Architectural Drift Guard.",
-    executionMode: "sequential",
+    executionMode: "parallel",
     parameters: Type.Object({
       codeContent: Type.String({ description: "Implementation code" }),
       testContent: Type.String({ description: "Test code" }),
@@ -444,7 +444,7 @@ export function registerTools(pi: ExtensionAPI): void {
     name: "craft_check_gate",
     label: "Craftsmanship: Check Quality Gate Status",
     description: "Returns the current quality gate state and checks hard gate transition eligibility.",
-    executionMode: "sequential",
+    executionMode: "parallel",
     parameters: Type.Object({
       targetPhase: Type.Optional(Type.String({ description: "Target phase to test transition against" })),
     }),

@@ -4,6 +4,8 @@ import { ExemptableGate, QualityGateExemption, QualityGateState, WorkflowPhase }
 
 export class QualityGateEngine {
   private stateFilePath: string;
+  private lockFilePath: string;
+  private eventLogPath: string;
   private state: QualityGateState;
 
   constructor(projectRoot: string = process.cwd()) {
@@ -13,7 +15,56 @@ export class QualityGateEngine {
       fs.mkdirSync(craftDir, { recursive: true });
     }
     this.stateFilePath = path.join(craftDir, "state.json");
+    this.lockFilePath = path.join(craftDir, "state.json.lock");
+    this.eventLogPath = path.join(craftDir, "events.jsonl");
     this.state = this.loadState();
+  }
+
+  private acquireFileLock(): void {
+    const maxRetries = 50;
+    for (let i = 0; i < maxRetries; i++) {
+      try {
+        // Exclusive creation mode ('wx') guarantees atomic lock acquisition across processes/threads
+        const fd = fs.openSync(this.lockFilePath, "wx");
+        fs.closeSync(fd);
+        return;
+      } catch (err: any) {
+        if (err.code === "EEXIST") {
+          // Check for stale lock older than 5 seconds
+          try {
+            const stat = fs.statSync(this.lockFilePath);
+            if (Date.now() - stat.mtimeMs > 5000) {
+              fs.unlinkSync(this.lockFilePath);
+              continue;
+            }
+          } catch {}
+          // Wait 10ms before retrying
+          const start = Date.now();
+          while (Date.now() - start < 10) {}
+        } else {
+          break;
+        }
+      }
+    }
+  }
+
+  private releaseFileLock(): void {
+    if (fs.existsSync(this.lockFilePath)) {
+      try {
+        fs.unlinkSync(this.lockFilePath);
+      } catch {}
+    }
+  }
+
+  private logEvent(eventType: string, payload: any): void {
+    try {
+      const eventEntry = JSON.stringify({
+        timestamp: new Date().toISOString(),
+        eventType,
+        payload,
+      }) + "\n";
+      fs.appendFileSync(this.eventLogPath, eventEntry, "utf-8");
+    } catch {}
   }
 
   private loadState(): QualityGateState {
@@ -44,10 +95,16 @@ export class QualityGateEngine {
   }
 
   public saveState(): void {
-    // Atomic Write: Write to temporary file then rename to prevent state corruption on process interruption
-    const tmpPath = `${this.stateFilePath}.tmp`;
-    fs.writeFileSync(tmpPath, JSON.stringify(this.state, null, 2), "utf-8");
-    fs.renameSync(tmpPath, this.stateFilePath);
+    this.acquireFileLock();
+    try {
+      // Atomic Write: Write to temporary file then rename to prevent state corruption on process interruption
+      const tmpPath = `${this.stateFilePath}.tmp.${Date.now()}.${Math.random().toString(36).substring(2, 7)}`;
+      fs.writeFileSync(tmpPath, JSON.stringify(this.state, null, 2), "utf-8");
+      fs.renameSync(tmpPath, this.stateFilePath);
+      this.logEvent("STATE_SAVED", { phase: this.state.currentPhase, sliceName: this.state.sliceName });
+    } finally {
+      this.releaseFileLock();
+    }
   }
 
   public getState(): QualityGateState {
