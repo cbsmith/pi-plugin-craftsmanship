@@ -276,19 +276,64 @@ describe('${sliceName} Stateful Property Verification', () => {
   /**
    * Architectural Drift Guard: inspects implementation code against C4 diagrams and ADRs.
    */
-  public verifyArchitecturalDrift(sliceName: string, sourceFiles: string[] = []): ArchitecturalDriftReport {
+  public verifyArchitecturalDrift(sliceName: string, sourceFiles: string[] = [], state?: any): ArchitecturalDriftReport {
     const detectedComponents: string[] = [];
     const detectedDependencies: Array<{ from: string; to: string }> = [];
     const undocumentedChanges: string[] = [];
 
+    // Read existing C4 D2 diagrams and ADR documentation (from files and state)
+    const c4Path = path.join(this.projectRoot, "specs", "c4_architecture.d2");
+    let c4Content = "";
+    if (fs.existsSync(c4Path)) {
+      try {
+        c4Content = fs.readFileSync(c4Path, "utf-8").toLowerCase();
+      } catch {}
+    }
+    if (state?.c4Spec) {
+      c4Content += JSON.stringify(state.c4Spec).toLowerCase();
+    }
+
+    const adrDir = path.join(this.projectRoot, "docs", "adr");
+    let adrContent = "";
+    if (fs.existsSync(adrDir)) {
+      try {
+        const adrFiles = fs.readdirSync(adrDir);
+        adrFiles.forEach((f) => {
+          try {
+            adrContent += fs.readFileSync(path.join(adrDir, f), "utf-8").toLowerCase() + "\n";
+          } catch {}
+        });
+      } catch {}
+    }
+    if (state?.adrs && Array.isArray(state.adrs)) {
+      adrContent += JSON.stringify(state.adrs).toLowerCase();
+    }
+
     sourceFiles.forEach((f) => {
       if (fs.existsSync(f)) {
         const content = fs.readFileSync(f, "utf-8");
-        if (content.includes("axios") || content.includes("fetch")) {
-          undocumentedChanges.push(`File '${f}' introduced external HTTP client dependency not specified in C4 Container diagram.`);
+        const fileName = path.basename(f);
+
+        // Check for external HTTP / API client dependencies
+        if (content.includes("axios") || content.includes("fetch") || content.includes("http")) {
+          const isDocumented =
+            c4Content.includes("http") || c4Content.includes("api") || c4Content.includes("fetch") || c4Content.includes("axios") ||
+            adrContent.includes("http") || adrContent.includes("api") || adrContent.includes("fetch") || adrContent.includes("axios");
+
+          if (!isDocumented) {
+            undocumentedChanges.push(`File '${fileName}' introduced external HTTP/API client dependency not specified in C4 diagrams or ADRs.`);
+          }
         }
+
+        // Check for shell process execution
         if (content.includes("eval(") || content.includes("child_process")) {
-          undocumentedChanges.push(`File '${f}' introduced un-governed shell process execution.`);
+          const isProcessDocumented =
+            c4Content.includes("process") || c4Content.includes("child_process") || c4Content.includes("exec") ||
+            adrContent.includes("process") || adrContent.includes("child_process") || adrContent.includes("exec");
+
+          if (!isProcessDocumented) {
+            undocumentedChanges.push(`File '${fileName}' introduced un-governed shell process execution not specified in C4 diagrams or ADRs.`);
+          }
         }
       }
     });

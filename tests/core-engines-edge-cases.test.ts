@@ -156,4 +156,28 @@ describe("Core Engineering Modules Edge Cases & Robustness", () => {
     expect(review.driftReport.hasDrift).toBe(true);
     expect(review.driftReport.undocumentedChanges.length).toBeGreaterThan(0);
   });
+
+  it("9. Architectural Drift Guard clears drift when API boundaries are documented in C4 diagrams or ADRs", () => {
+    const design = new SystemDesignEngine(coreTestDir);
+
+    const srcFile = path.join(coreTestDir, "api_client.ts");
+    fs.writeFileSync(srcFile, "import fetch from 'node-fetch'; export function callApi() { return fetch('https://api.com'); }", "utf-8");
+
+    // Case A: Without C4/ADR -> Drift detected
+    const driftBefore = design.verifyArchitecturalDrift("ApiSlice", [srcFile]);
+    expect(driftBefore.hasDrift).toBe(true);
+
+    // Case B: Save C4 diagram specifying HTTP API boundary -> Drift cleared
+    design.saveC4Diagrams({
+      contextD2: "User -> API: HTTP Requests",
+      containerD2: "API Container -> External API: fetch / HTTP client",
+      componentD2: "ApiClient -> External: HTTPS",
+      codeD2: "ApiClient -> fetch",
+      generatedFromCode: true,
+    });
+
+    const driftAfter = design.verifyArchitecturalDrift("ApiSlice", [srcFile]);
+    expect(driftAfter.hasDrift).toBe(false);
+    expect(driftAfter.undocumentedChanges).toEqual([]);
+  });
 });

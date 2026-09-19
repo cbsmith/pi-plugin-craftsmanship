@@ -34,7 +34,7 @@ export class PostImplementationCodeReviewPanel {
 
     // 2. Architectural Drift Guard Inspection
     const design = new SystemDesignEngine(process.cwd());
-    const driftReport: ArchitecturalDriftReport = design.verifyArchitecturalDrift(state.sliceName || "CoreSystem", sourceFiles);
+    const driftReport: ArchitecturalDriftReport = design.verifyArchitecturalDrift(state.sliceName || "CoreSystem", sourceFiles, state);
 
     // 3. Dialectic Review Objections (7 Lenses)
     const objections: DialecticObjection[] = [];
