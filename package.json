@@ -27,7 +27,7 @@
     "static-analysis"
   ],
   "author": "Antigravity Engineering",
-  "license": "MIT",
+  "license": "LGPL-3.0-or-later",
   "dependencies": {
     "@sinclair/typebox": "^0.34.0"
   },

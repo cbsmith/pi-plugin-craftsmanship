@@ -95,3 +95,10 @@ npm test
 ```
 
 All 8 core workflow unit and integration test suites run via Vitest.
+
+---
+
+## 📄 License
+
+Distributed under the **GNU Lesser General Public License v3.0 or later** (`LGPL-3.0-or-later`). See [`LICENSE`](LICENSE) for details.
+
