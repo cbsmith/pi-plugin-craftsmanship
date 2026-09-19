@@ -84,14 +84,23 @@ export class PostImplementationCodeReviewPanel {
     }
 
     // Lens 4: Adherence to Design / Formal Models / C4 Diagrams
-    if (!state.c4Spec || !state.formalModel || state.adrs.length === 0) {
+    const hasC4 = !!state.c4Spec || (state.exemptions || []).some((e) => e.gate === "C4_DIAGRAMS" && e.humanApproved);
+    const hasFormal = !!state.formalModel || (state.exemptions || []).some((e) => e.gate === "FORMAL_METHODS" && e.humanApproved);
+    const hasADR = state.adrs.length > 0 || (state.exemptions || []).some((e) => e.gate === "ADR_DOCUMENTATION" && e.humanApproved);
+
+    if (!hasC4 || !hasFormal || !hasADR) {
+      const missing = [];
+      if (!hasC4) missing.push("C4 D2 diagrams");
+      if (!hasFormal) missing.push("Alloy/TLA+ formal models");
+      if (!hasADR) missing.push("ADR records");
+
       objections.push({
         id: "REV-OBJ-ADH-01",
         lens: "Adherence to Design",
         severity: "BLOCKER",
         title: "Incomplete Design Artifact Traceability",
-        critique: "Code implementation lacks underlying C4 D2 diagrams, Alloy/TLA+ formal specifications, or ADR records.",
-        requiredAction: "Complete design artifacts in specs/ and docs/ before finalizing review.",
+        critique: `Code implementation lacks underlying design artifacts: ${missing.join(", ")} (without approved human exemption).`,
+        requiredAction: "Complete required design artifacts in specs/ and docs/ or obtain explicit human exemption.",
         addressed: false,
       });
     }

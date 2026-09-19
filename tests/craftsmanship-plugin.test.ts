@@ -261,4 +261,19 @@ describe("Pi Craftsmanship Plugin Low-Risk Exemption Engine & Hard Gates", () =>
     expect(await promptConfirm(undefined, "Test")).toBe(true);
     expect(() => notifyUser(undefined, "Test", "info")).not.toThrow();
   });
+
+  it("11. Dialectic Code Review Panel: respects human-approved gate exemptions for C4, Formal Methods, and ADRs", () => {
+    const qEngine = new QualityGateEngine(testProjectDir);
+    qEngine.recordExemption({ gate: "C4_DIAGRAMS", riskAssessment: "Low risk", requestedByAgent: true, humanApproved: true, humanReviewerNotes: "Approved", timestamp: new Date().toISOString() });
+    qEngine.recordExemption({ gate: "FORMAL_METHODS", riskAssessment: "Low risk", requestedByAgent: true, humanApproved: true, humanReviewerNotes: "Approved", timestamp: new Date().toISOString() });
+    qEngine.recordExemption({ gate: "ADR_DOCUMENTATION", riskAssessment: "Low risk", requestedByAgent: true, humanApproved: true, humanReviewerNotes: "Approved", timestamp: new Date().toISOString() });
+    qEngine.updateMutationResult({ totalMutants: 10, killedMutants: 9, survivedMutants: 1, killRatePercent: 90, passedThreshold: true });
+
+    const state = qEngine.getState();
+    const reviewer = new PostImplementationCodeReviewPanel();
+    const result = reviewer.runReview("export class SimpleFix {}", "describe('SimpleFix', () => {})", state, "0 errors, 0 warnings", []);
+
+    expect(result.passed).toBe(true);
+    expect(result.dialecticReview.objections.some((o) => o.id === "REV-OBJ-ADH-01")).toBe(false);
+  });
 });
