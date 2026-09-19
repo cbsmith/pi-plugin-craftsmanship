@@ -120,12 +120,59 @@ export function registerTools(pi: ExtensionAPI): void {
     execute: async (_id: string, params: any, _signal: any, _onUpdate: any, ctx?: ExtensionContext) => {
       const cwd = ctx?.cwd || process.cwd();
       const qEngine = new QualityGateEngine(cwd);
+      const state = qEngine.getState();
 
-      const prompt = `Agent assesses gate '${params.gate}' as low-risk. Reason: "${params.riskAssessment}". Do you confirm skipping '${params.gate}'?`;
-      const approved = await promptConfirm(ctx?.ui, "Quality Gate Exemption Request", prompt);
-      let notes = "Skipped by agent request.";
+      const GATE_DETAILS: Record<ExemptableGate, { name: string; description: string; toolToExecute: string; impactOfSkipping: string }> = {
+        FORMAL_METHODS: {
+          name: "Formal Methods (Alloy, TLA+, & Stateful Property Tests)",
+          description: "Generates declarative Alloy state models (.als), TLA+ concurrency specs (.tla/.cfg), and stateful fast-check property tests to prove safety & liveness invariants.",
+          toolToExecute: "craft_generate_formal_spec",
+          impactOfSkipping: "Bypasses mathematical proof of state consistency and stateful counterexample checking for edge cases.",
+        },
+        C4_DIAGRAMS: {
+          name: "C4 Architecture Diagrams (D2 format)",
+          description: "Constructs Context, Container, Component, and Code level C4 architecture diagrams directly from source file AST structures formatted in D2 syntax.",
+          toolToExecute: "craft_generate_c4_d2",
+          impactOfSkipping: "Bypasses AST code architecture diagram extraction and static component visualization.",
+        },
+        ADR_DOCUMENTATION: {
+          name: "Architectural Decision Records (MADR format)",
+          description: "Records MADR architectural decision records in docs/adr/ capturing problem context, decisions, and trade-offs.",
+          toolToExecute: "craft_create_adr",
+          impactOfSkipping: "Leaves architectural choices undocumented in repository version control.",
+        },
+        RFC_GOVERNANCE: {
+          name: "Dialectic 6-Lens Agent RFC Governance Panel",
+          description: "Evaluates architectural strategy across 6 agent lenses (Security, Consistency, Efficiency, Simplicity, Maintainability, Elegance) and requires human sign-off.",
+          toolToExecute: "craft_run_rfc_panel",
+          impactOfSkipping: "Bypasses multi-agent dialectic critique for architectural trade-offs and RFC sign-off.",
+        },
+      };
+
+      const details = GATE_DETAILS[params.gate as ExemptableGate];
+      const sliceName = state.sliceName || "default-slice";
+      const featureName = state.bddSpec?.featureName || "N/A";
+
+      const title = `Quality Gate Exemption Request: ${params.gate}`;
+      let promptMessage = `Slice Name     : ${sliceName} (Feature: ${featureName})\n`;
+      promptMessage += `Current Phase  : ${state.currentPhase}\n`;
+      promptMessage += `Requested Gate : ${details.name} (${params.gate})\n\n`;
+      promptMessage += `WHAT THIS STEP DOES:\n${details.description}\n\n`;
+      promptMessage += `IMPACT OF SKIPPING:\n${details.impactOfSkipping}\n\n`;
+      promptMessage += `AGENT RISK ASSESSMENT:\n"${params.riskAssessment}"\n\n`;
+      promptMessage += `--------------------------------------------------\n`;
+      promptMessage += `Do you approve EXEMPTING '${params.gate}' for this slice?\n`;
+      promptMessage += `• YES = Grant Exemption (skip step for low-risk work)\n`;
+      promptMessage += `• NO  = Require Step (do NOT skip; execute ${details.name})`;
+
+      const approved = await promptConfirm(ctx?.ui, title, promptMessage);
+
+      let notes = params.riskAssessment;
       if (approved) {
-        notes = (await promptInput(ctx?.ui, `Enter Human Exemption Notes for skipping '${params.gate}':`)) || "Skipped by agent request.";
+        const userInputNotes = await promptInput(ctx?.ui, `Enter notes/rationale for exempting '${params.gate}' (press Enter to use agent risk assessment):`);
+        if (userInputNotes && userInputNotes.trim().length > 0) {
+          notes = userInputNotes.trim();
+        }
       }
 
       const exemption = {
@@ -140,9 +187,16 @@ export function registerTools(pi: ExtensionAPI): void {
       qEngine.recordExemption(exemption);
 
       if (approved) {
-        return { content: [{ type: "text", text: `EXEMPTION GRANTED: Human approved skipping '${params.gate}' for this slice. Notes: ${notes}` }] };
+        let summary = `EXEMPTION GRANTED: Human approved skipping '${details.name}' (${params.gate}) for slice '${sliceName}'.\n`;
+        summary += `Rationale: "${notes}"\n`;
+        summary += `Workflow will proceed past this quality gate.`;
+        return { content: [{ type: "text", text: summary }] };
       } else {
-        return { content: [{ type: "text", text: `EXEMPTION DENIED: Human rejected skipping '${params.gate}'. Step remains MANDATORY.` }] };
+        let summary = `EXEMPTION DENIED - GATE ENFORCED:\n`;
+        summary += `Human reviewer determined that '${details.name}' (${params.gate}) MUST BE PERFORMED for slice '${sliceName}'.\n\n`;
+        summary += `NEXT ACTION REQUIRED FOR AGENT:\n`;
+        summary += `Please execute the required quality gate tool next: '${details.toolToExecute}'.`;
+        return { content: [{ type: "text", text: summary }] };
       }
     },
   });

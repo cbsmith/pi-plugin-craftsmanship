@@ -69,6 +69,7 @@ export function registerCommands(pi: ExtensionAPI): void {
     handler: async (args: string, ctx: ExtensionContext) => {
       const cwd = ctx?.cwd || process.cwd();
       const qEngine = new QualityGateEngine(cwd);
+      const state = qEngine.getState();
       const gateArg = args.trim().toUpperCase() as ExemptableGate;
 
       const validGates: ExemptableGate[] = ["FORMAL_METHODS", "C4_DIAGRAMS", "ADR_DOCUMENTATION", "RFC_GOVERNANCE"];
@@ -77,13 +78,56 @@ export function registerCommands(pi: ExtensionAPI): void {
         return;
       }
 
-      const riskAssessment = await promptInput(ctx?.ui, `Enter Low-Risk Assessment explaining why skipping '${gateArg}' is safe:`);
-      const prompt = `Skip gate '${gateArg}'? Reason: "${riskAssessment}". Do you approve?`;
-      const approved = await promptConfirm(ctx?.ui, "Low-Risk Exemption Request", prompt);
+      const GATE_DETAILS: Record<ExemptableGate, { name: string; description: string; toolToExecute: string; impactOfSkipping: string }> = {
+        FORMAL_METHODS: {
+          name: "Formal Methods (Alloy, TLA+, & Stateful Property Tests)",
+          description: "Generates declarative Alloy state models (.als), TLA+ concurrency specs (.tla/.cfg), and stateful fast-check property tests to prove safety & liveness invariants.",
+          toolToExecute: "craft_generate_formal_spec",
+          impactOfSkipping: "Bypasses mathematical proof of state consistency and stateful counterexample checking for edge cases.",
+        },
+        C4_DIAGRAMS: {
+          name: "C4 Architecture Diagrams (D2 format)",
+          description: "Constructs Context, Container, Component, and Code level C4 architecture diagrams directly from source file AST structures formatted in D2 syntax.",
+          toolToExecute: "craft_generate_c4_d2",
+          impactOfSkipping: "Bypasses AST code architecture diagram extraction and static component visualization.",
+        },
+        ADR_DOCUMENTATION: {
+          name: "Architectural Decision Records (MADR format)",
+          description: "Records MADR architectural decision records in docs/adr/ capturing problem context, decisions, and trade-offs.",
+          toolToExecute: "craft_create_adr",
+          impactOfSkipping: "Leaves architectural choices undocumented in repository version control.",
+        },
+        RFC_GOVERNANCE: {
+          name: "Dialectic 6-Lens Agent RFC Governance Panel",
+          description: "Evaluates architectural strategy across 6 agent lenses (Security, Consistency, Efficiency, Simplicity, Maintainability, Elegance) and requires human sign-off.",
+          toolToExecute: "craft_run_rfc_panel",
+          impactOfSkipping: "Bypasses multi-agent dialectic critique for architectural trade-offs and RFC sign-off.",
+        },
+      };
 
-      let notes = "Skipped via /craft-skip command.";
+      const details = GATE_DETAILS[gateArg];
+      const riskAssessment = await promptInput(ctx?.ui, `Enter Low-Risk Assessment explaining why skipping '${details.name}' (${gateArg}) is safe:`);
+
+      const title = `Quality Gate Exemption Request: ${gateArg}`;
+      let promptMessage = `Slice Name     : ${state.sliceName || "default-slice"}\n`;
+      promptMessage += `Current Phase  : ${state.currentPhase}\n`;
+      promptMessage += `Requested Gate : ${details.name} (${gateArg})\n\n`;
+      promptMessage += `WHAT THIS STEP DOES:\n${details.description}\n\n`;
+      promptMessage += `IMPACT OF SKIPPING:\n${details.impactOfSkipping}\n\n`;
+      promptMessage += `RISK ASSESSMENT:\n"${riskAssessment}"\n\n`;
+      promptMessage += `--------------------------------------------------\n`;
+      promptMessage += `Do you approve EXEMPTING '${gateArg}' for this slice?\n`;
+      promptMessage += `• YES = Grant Exemption (skip step for low-risk work)\n`;
+      promptMessage += `• NO  = Require Step (do NOT skip; execute ${details.name})`;
+
+      const approved = await promptConfirm(ctx?.ui, title, promptMessage);
+
+      let notes = riskAssessment || "Skipped via /craft-skip command.";
       if (approved) {
-        notes = (await promptInput(ctx?.ui, `Enter Human Exemption Notes for skipping '${gateArg}':`)) || "Skipped via /craft-skip command.";
+        const userInputNotes = await promptInput(ctx?.ui, `Enter notes/rationale for exempting '${gateArg}' (press Enter to accept risk assessment):`);
+        if (userInputNotes && userInputNotes.trim().length > 0) {
+          notes = userInputNotes.trim();
+        }
       }
 
       qEngine.recordExemption({
@@ -96,9 +140,9 @@ export function registerCommands(pi: ExtensionAPI): void {
       });
 
       if (approved) {
-        notifyUser(ctx?.ui, `HUMAN EXEMPTION GRANTED: Skipping '${gateArg}' approved for this slice!`, "success");
+        notifyUser(ctx?.ui, `HUMAN EXEMPTION GRANTED: Skipping '${details.name}' approved for slice '${state.sliceName}'! Notes: "${notes}"`, "success");
       } else {
-        notifyUser(ctx?.ui, `HUMAN EXEMPTION REJECTED: Skipping '${gateArg}' was denied. Step remains mandatory.`, "error");
+        notifyUser(ctx?.ui, `HUMAN EXEMPTION DENIED: Step '${details.name}' remains MANDATORY. Execute '${details.toolToExecute}' next.`, "error");
       }
     },
   });
