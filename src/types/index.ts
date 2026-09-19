@@ -243,6 +243,7 @@ export interface ToolDefinition<T = any> {
   label?: string;
   description: string;
   parameters: T;
+  executionMode?: "sequential" | "parallel";
   execute: (
     toolCallId: string,
     params: any,
