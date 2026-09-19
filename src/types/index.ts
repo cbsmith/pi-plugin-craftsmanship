@@ -180,6 +180,8 @@ export interface StaticAnalysisDiagnostics {
   lintWarnings: number;
   typeErrors: number;
   securityIssues: number;
+  anyTypeUsages?: number;
+  untypedFunctions?: number;
   toolOutputs: Record<string, string>;
 }
 

@@ -276,4 +276,29 @@ describe("Pi Craftsmanship Plugin Low-Risk Exemption Engine & Hard Gates", () =>
     expect(result.passed).toBe(true);
     expect(result.dialecticReview.objections.some((o) => o.id === "REV-OBJ-ADH-01")).toBe(false);
   });
+
+  it("12. Dialectic Code Review Panel: Lens 8 enforces strict type hinting across TypeScript and Python", () => {
+    const qEngine = new QualityGateEngine(testProjectDir);
+    qEngine.recordExemption({ gate: "C4_DIAGRAMS", riskAssessment: "Low risk", requestedByAgent: true, humanApproved: true, humanReviewerNotes: "Approved", timestamp: new Date().toISOString() });
+    qEngine.recordExemption({ gate: "FORMAL_METHODS", riskAssessment: "Low risk", requestedByAgent: true, humanApproved: true, humanReviewerNotes: "Approved", timestamp: new Date().toISOString() });
+    qEngine.recordExemption({ gate: "ADR_DOCUMENTATION", riskAssessment: "Low risk", requestedByAgent: true, humanApproved: true, humanReviewerNotes: "Approved", timestamp: new Date().toISOString() });
+    qEngine.updateMutationResult({ totalMutants: 10, killedMutants: 9, survivedMutants: 1, killRatePercent: 90, passedThreshold: true });
+
+    const state = qEngine.getState();
+    const reviewer = new PostImplementationCodeReviewPanel();
+
+    // Case A: Unconstrained 'any' usage -> REJECTED with BLOCKER
+    const anyCodeResult = reviewer.runReview("export function processData(data: any): any { return data; }", "test()", state, "0 errors", []);
+    expect(anyCodeResult.passed).toBe(false);
+    expect(anyCodeResult.dialecticReview.objections.some((o) => o.id === "REV-OBJ-TYPE-01")).toBe(true);
+
+    // Case B: Untyped Python function -> REJECTED with BLOCKER
+    const pyCodeResult = reviewer.runReview("def calculate_total(items): return sum(items)", "test()", state, "0 errors", []);
+    expect(pyCodeResult.passed).toBe(false);
+    expect(pyCodeResult.dialecticReview.objections.some((o) => o.id === "REV-OBJ-TYPE-02")).toBe(true);
+
+    // Case C: Strictly type-hinted code -> PASSED
+    const strictCodeResult = reviewer.runReview("export class StrictService { public execute(name: string): boolean { return name.length > 0; } }", "test()", state, "0 errors", []);
+    expect(strictCodeResult.passed).toBe(true);
+  });
 });
