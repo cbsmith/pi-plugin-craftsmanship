@@ -7,6 +7,7 @@ import { TDDEngine } from "../core/tdd-engine";
 import { PostImplementationCodeReviewPanel } from "../core/code-review-panel";
 import { QualityGateEngine } from "../core/state-machine";
 import { ExemptableGate, ExtensionAPI, ExtensionContext } from "../types";
+import { promptConfirm, promptInput } from "../utils/ui-adapter";
 
 export function registerTools(pi: ExtensionAPI): void {
 
@@ -117,11 +118,11 @@ export function registerTools(pi: ExtensionAPI): void {
       const cwd = ctx?.cwd || process.cwd();
       const qEngine = new QualityGateEngine(cwd);
 
-      const prompt = `[LOW-RISK WORK EXEMPTION REQUEST] Agent assesses gate '${params.gate}' as low-risk. Reason: "${params.riskAssessment}". Do you confirm skipping '${params.gate}'?`;
-      const approved = ctx?.ui ? await ctx.ui.confirm(prompt) : true;
+      const prompt = `Agent assesses gate '${params.gate}' as low-risk. Reason: "${params.riskAssessment}". Do you confirm skipping '${params.gate}'?`;
+      const approved = await promptConfirm(ctx?.ui, "Quality Gate Exemption Request", prompt);
       let notes = "Skipped by agent request.";
-      if (approved && ctx?.ui) {
-        notes = await ctx.ui.ask(`Enter Human Exemption Notes for skipping '${params.gate}':`);
+      if (approved) {
+        notes = (await promptInput(ctx?.ui, `Enter Human Exemption Notes for skipping '${params.gate}':`)) || "Skipped by agent request.";
       }
 
       const exemption = {

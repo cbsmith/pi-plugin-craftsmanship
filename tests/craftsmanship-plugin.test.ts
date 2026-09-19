@@ -234,4 +234,31 @@ describe("Pi Craftsmanship Plugin Low-Risk Exemption Engine & Hard Gates", () =>
     );
     expect(reqRes.content[0].text).toContain("BDD Feature spec generated");
   });
+
+  it("10. UI Adapter: seamlessly adapts input(), ask(), confirm(), and notify() across Pi UI context shapes", async () => {
+    const { promptInput, promptConfirm, notifyUser } = await import("../src/utils/ui-adapter");
+
+    // Shape 1: Pi ExtensionUIContext with input()
+    const piUI = {
+      input: async (title: string) => `InputFor:${title}`,
+      confirm: async (title: string, msg?: string) => title.length > 0,
+      notify: (msg: string, type?: string) => {},
+    };
+
+    expect(await promptInput(piUI, "FeatureName")).toBe("InputFor:FeatureName");
+    expect(await promptConfirm(piUI, "ConfirmAction")).toBe(true);
+
+    // Shape 2: Legacy ask() UI context
+    const legacyUI = {
+      ask: async (prompt: string) => `AskFor:${prompt}`,
+      confirm: async (prompt: string) => prompt.length > 0,
+    };
+
+    expect(await promptInput(legacyUI, "UserStory")).toBe("AskFor:UserStory");
+
+    // Shape 3: Empty/undefined UI
+    expect(await promptInput(undefined, "Test")).toBe("");
+    expect(await promptConfirm(undefined, "Test")).toBe(true);
+    expect(() => notifyUser(undefined, "Test", "info")).not.toThrow();
+  });
 });

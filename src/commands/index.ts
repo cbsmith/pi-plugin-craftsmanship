@@ -8,6 +8,7 @@ import { TDDEngine } from "../core/tdd-engine";
 import { PostImplementationCodeReviewPanel } from "../core/code-review-panel";
 import { QualityGateEngine } from "../core/state-machine";
 import { ExemptableGate, ExtensionAPI, ExtensionContext } from "../types";
+import { notifyUser, promptConfirm, promptInput } from "../utils/ui-adapter";
 
 export function registerCommands(pi: ExtensionAPI): void {
 
@@ -15,18 +16,19 @@ export function registerCommands(pi: ExtensionAPI): void {
   pi.registerCommand("craft-init", {
     description: "Initialize Craftsmanship project directories and hard quality gate tracking",
     handler: async (_args: string, ctx: ExtensionContext) => {
+      const cwd = ctx?.cwd || process.cwd();
       const dirs = ["features", "specs/c4", "specs/alloy", "specs/tla", "specs/properties", "docs/adr", "docs/rfc", ".craftsmanship"];
       dirs.forEach((d) => {
-        const full = path.join(ctx.cwd, d);
+        const full = path.join(cwd, d);
         if (!fs.existsSync(full)) {
           fs.mkdirSync(full, { recursive: true });
         }
       });
 
-      const qEngine = new QualityGateEngine(ctx.cwd);
+      const qEngine = new QualityGateEngine(cwd);
       qEngine.setPhase("BDD_SPECIFICATION");
 
-      ctx.ui.notify("Craftsmanship project initialized with HARD QUALITY GATES!", "success");
+      notifyUser(ctx?.ui, "Craftsmanship project initialized with HARD QUALITY GATES!", "success");
     },
   });
 
@@ -34,7 +36,8 @@ export function registerCommands(pi: ExtensionAPI): void {
   pi.registerCommand("craft-status", {
     description: "Display current Craftsmanship quality gate state & dialectic objections dashboard",
     handler: async (_args: string, ctx: ExtensionContext) => {
-      const qEngine = new QualityGateEngine(ctx.cwd);
+      const cwd = ctx?.cwd || process.cwd();
+      const qEngine = new QualityGateEngine(cwd);
       const state = qEngine.getState();
 
       let dashboard = `\n================ CRAFTSMANSHIP WORKFLOW STATUS ================\n`;
@@ -56,7 +59,7 @@ export function registerCommands(pi: ExtensionAPI): void {
       dashboard += `Guided Human Review : ${state.humanSliceReview ? (state.humanSliceReview.approved ? `APPROVED by ${state.humanSliceReview.reviewerName}` : "REJECTED") : "PENDING HUMAN WALKTHROUGH"}\n`;
       dashboard += `=================================================================\n`;
 
-      ctx.ui.notify(dashboard, "info");
+      notifyUser(ctx?.ui, dashboard, "info");
     },
   });
 
@@ -64,22 +67,23 @@ export function registerCommands(pi: ExtensionAPI): void {
   pi.registerCommand("craft-skip", {
     description: "Request human approval to skip heavy steps for low-risk work (/craft-skip FORMAL_METHODS|C4_DIAGRAMS|ADR_DOCUMENTATION|RFC_GOVERNANCE)",
     handler: async (args: string, ctx: ExtensionContext) => {
-      const qEngine = new QualityGateEngine(ctx.cwd);
+      const cwd = ctx?.cwd || process.cwd();
+      const qEngine = new QualityGateEngine(cwd);
       const gateArg = args.trim().toUpperCase() as ExemptableGate;
 
       const validGates: ExemptableGate[] = ["FORMAL_METHODS", "C4_DIAGRAMS", "ADR_DOCUMENTATION", "RFC_GOVERNANCE"];
       if (!validGates.includes(gateArg)) {
-        ctx.ui.notify(`Invalid gate '${args}'. Valid gates to skip: ${validGates.join(", ")}`, "error");
+        notifyUser(ctx?.ui, `Invalid gate '${args}'. Valid gates to skip: ${validGates.join(", ")}`, "error");
         return;
       }
 
-      const riskAssessment = await ctx.ui.ask(`Enter Low-Risk Assessment explaining why skipping '${gateArg}' is safe:`);
-      const prompt = `[LOW-RISK WORK EXEMPTION REQUEST] Skip gate '${gateArg}'? Reason: "${riskAssessment}". Do you approve?`;
-      const approved = await ctx.ui.confirm(prompt);
+      const riskAssessment = await promptInput(ctx?.ui, `Enter Low-Risk Assessment explaining why skipping '${gateArg}' is safe:`);
+      const prompt = `Skip gate '${gateArg}'? Reason: "${riskAssessment}". Do you approve?`;
+      const approved = await promptConfirm(ctx?.ui, "Low-Risk Exemption Request", prompt);
 
       let notes = "Skipped via /craft-skip command.";
       if (approved) {
-        notes = await ctx.ui.ask(`Enter Human Exemption Notes for skipping '${gateArg}':`);
+        notes = (await promptInput(ctx?.ui, `Enter Human Exemption Notes for skipping '${gateArg}':`)) || "Skipped via /craft-skip command.";
       }
 
       qEngine.recordExemption({
@@ -92,9 +96,9 @@ export function registerCommands(pi: ExtensionAPI): void {
       });
 
       if (approved) {
-        ctx.ui.notify(`HUMAN EXEMPTION GRANTED: Skipping '${gateArg}' approved for this slice!`, "success");
+        notifyUser(ctx?.ui, `HUMAN EXEMPTION GRANTED: Skipping '${gateArg}' approved for this slice!`, "success");
       } else {
-        ctx.ui.notify(`HUMAN EXEMPTION REJECTED: Skipping '${gateArg}' was denied. Step remains mandatory.`, "error");
+        notifyUser(ctx?.ui, `HUMAN EXEMPTION REJECTED: Skipping '${gateArg}' was denied. Step remains mandatory.`, "error");
       }
     },
   });
@@ -103,18 +107,19 @@ export function registerCommands(pi: ExtensionAPI): void {
   pi.registerCommand("craft-bdd", {
     description: "Interactively define BDD feature specifications & resolve clarifying questions",
     handler: async (args: string, ctx: ExtensionContext) => {
-      const featureName = args.trim() || (await ctx.ui.ask("Enter Feature Name:"));
-      const userStory = await ctx.ui.ask("Enter User Story (e.g. As a developer... I want... So that...):");
-      const criteriaRaw = await ctx.ui.ask("Enter Acceptance Criteria (comma separated):");
+      const cwd = ctx?.cwd || process.cwd();
+      const featureName = args.trim() || (await promptInput(ctx?.ui, "Enter Feature Name:"));
+      const userStory = await promptInput(ctx?.ui, "Enter User Story (e.g. As a developer... I want... So that...):");
+      const criteriaRaw = await promptInput(ctx?.ui, "Enter Acceptance Criteria (comma separated):");
 
       const criteria = criteriaRaw.split(",").map((c) => c.trim()).filter(Boolean);
 
-      const bdd = new BDDEngine(ctx.cwd);
+      const bdd = new BDDEngine(cwd);
       const questions = bdd.analyzeAcceptanceCriteria(featureName, userStory, criteria);
 
       const resolvedQuestions = [];
       for (const q of questions) {
-        const answer = await ctx.ui.ask(`[CLARIFICATION REQUIRED] ${q.question}`);
+        const answer = await promptInput(ctx?.ui, `[CLARIFICATION REQUIRED] ${q.question}`);
         resolvedQuestions.push({
           ...q,
           answer,
@@ -134,7 +139,7 @@ export function registerCommands(pi: ExtensionAPI): void {
       const gherkin = bdd.buildGherkinFeature(featureName, userStory, scenarios);
       const filePath = bdd.saveFeatureFile(featureName, gherkin);
 
-      const qEngine = new QualityGateEngine(ctx.cwd);
+      const qEngine = new QualityGateEngine(cwd);
       qEngine.updateBDDSpec({
         featureName,
         userStory,
@@ -145,7 +150,7 @@ export function registerCommands(pi: ExtensionAPI): void {
       });
       qEngine.setPhase("BDD_SPECIFICATION");
 
-      ctx.ui.notify(`BDD Gherkin feature generated at ${filePath} with all clarifying questions resolved!`, "success");
+      notifyUser(ctx?.ui, `BDD Gherkin feature generated at ${filePath} with all clarifying questions resolved!`, "success");
     },
   });
 
@@ -153,11 +158,12 @@ export function registerCommands(pi: ExtensionAPI): void {
   pi.registerCommand("craft-review-tests", {
     description: "Run dialectic pre-implementation test review & slice decomposition check (<400 LOC)",
     handler: async (_args: string, ctx: ExtensionContext) => {
-      const qEngine = new QualityGateEngine(ctx.cwd);
+      const cwd = ctx?.cwd || process.cwd();
+      const qEngine = new QualityGateEngine(cwd);
       const state = qEngine.getState();
 
       if (!state.bddSpec) {
-        ctx.ui.notify("Error: Run /craft-bdd first to define feature specification.", "error");
+        notifyUser(ctx?.ui, "Error: Run /craft-bdd first to define feature specification.", "error");
         return;
       }
 
@@ -167,9 +173,9 @@ export function registerCommands(pi: ExtensionAPI): void {
       qEngine.updateTestReview(result);
       if (result.passed) {
         qEngine.setPhase("MULTI_LENS_TEST_REVIEW");
-        ctx.ui.notify("Dialectic pre-implementation test review PASSED (0 Blockers, slice <400 LOC)!", "success");
+        notifyUser(ctx?.ui, "Dialectic pre-implementation test review PASSED (0 Blockers, slice <400 LOC)!", "success");
       } else {
-        ctx.ui.notify(`Dialectic test review REJECTED: ${result.summary}`, "error");
+        notifyUser(ctx?.ui, `Dialectic test review REJECTED: ${result.summary}`, "error");
       }
     },
   });
@@ -178,11 +184,12 @@ export function registerCommands(pi: ExtensionAPI): void {
   pi.registerCommand("craft-design", {
     description: "Generate AST C4 D2 diagrams, Alloy & TLA+ formal models, and stateful property tests",
     handler: async (_args: string, ctx: ExtensionContext) => {
-      const qEngine = new QualityGateEngine(ctx.cwd);
+      const cwd = ctx?.cwd || process.cwd();
+      const qEngine = new QualityGateEngine(cwd);
       const state = qEngine.getState();
 
       const sliceName = state.sliceName || "CoreSystem";
-      const design = new SystemDesignEngine(ctx.cwd);
+      const design = new SystemDesignEngine(cwd);
 
       const c4 = design.generateC4FromCode(sliceName, []);
       design.saveC4Diagrams(c4);
@@ -194,9 +201,9 @@ export function registerCommands(pi: ExtensionAPI): void {
 
       if (formal.provedAbstractly || qEngine.hasApprovedExemption("FORMAL_METHODS")) {
         qEngine.setPhase("SYSTEM_DESIGN_C4_FORMAL");
-        ctx.ui.notify("C4 D2 diagrams, Alloy/TLA+ specs, and stateful property tests generated cleanly!", "success");
+        notifyUser(ctx?.ui, "C4 D2 diagrams, Alloy/TLA+ specs, and stateful property tests generated cleanly!", "success");
       } else {
-        ctx.ui.notify("Formal model rejected: TLC/Alloy detected counterexample trace or incomplete state model.", "error");
+        notifyUser(ctx?.ui, "Formal model rejected: TLC/Alloy detected counterexample trace or incomplete state model.", "error");
       }
     },
   });
@@ -205,32 +212,33 @@ export function registerCommands(pi: ExtensionAPI): void {
   pi.registerCommand("craft-rfc", {
     description: "Manage architectural RFCs, run dialectic 6-lens panel critique, or record human approval (/craft-rfc approve <id>)",
     handler: async (args: string, ctx: ExtensionContext) => {
-      const qEngine = new QualityGateEngine(ctx.cwd);
+      const cwd = ctx?.cwd || process.cwd();
+      const qEngine = new QualityGateEngine(cwd);
       const state = qEngine.getState();
-      const gov = new ArchitectureGovernanceEngine(ctx.cwd);
+      const gov = new ArchitectureGovernanceEngine(cwd);
 
       const parts = args.trim().split(" ");
       if (parts[0] === "approve" && parts[1]) {
         const rfcId = parts[1];
         const rfc = state.rfcs.find((r) => r.id === rfcId);
         if (!rfc) {
-          ctx.ui.notify(`RFC ${rfcId} not found.`, "error");
+          notifyUser(ctx?.ui, `RFC ${rfcId} not found.`, "error");
           return;
         }
 
-        const notes = await ctx.ui.ask(`Enter Human Reviewer Sign-off Notes for ${rfcId}:`);
+        const notes = await promptInput(ctx?.ui, `Enter Human Reviewer Sign-off Notes for ${rfcId}:`);
         rfc.humanApproved = true;
         rfc.humanReviewerNotes = notes;
         rfc.status = "APPROVED";
         gov.saveRFC(rfc);
         qEngine.addOrUpdateRFC(rfc);
 
-        ctx.ui.notify(`RFC ${rfcId} APPROVED with human sign-off!`, "success");
+        notifyUser(ctx?.ui, `RFC ${rfcId} APPROVED with human sign-off!`, "success");
         return;
       }
 
-      const title = args.trim() || (await ctx.ui.ask("Enter RFC Title:"));
-      const desc = await ctx.ui.ask("Enter RFC Strategy Description:");
+      const title = args.trim() || (await promptInput(ctx?.ui, "Enter RFC Title:"));
+      const desc = await promptInput(ctx?.ui, "Enter RFC Strategy Description:");
       const rfcId = `RFC-${(state.rfcs.length + 1).toString().padStart(4, "0")}`;
 
       const rfc = gov.evaluateRFCPanel(rfcId, title, desc, ["Increases modularity", "Requires formal verification update"]);
@@ -238,7 +246,7 @@ export function registerCommands(pi: ExtensionAPI): void {
       qEngine.addOrUpdateRFC(rfc);
       qEngine.setPhase("ADR_RFC_GOVERNANCE");
 
-      ctx.ui.notify(`RFC ${rfcId} evaluated by dialectic panel! Status: PENDING_HUMAN_APPROVAL. Run '/craft-rfc approve ${rfcId}' to sign off.`, "warning");
+      notifyUser(ctx?.ui, `RFC ${rfcId} evaluated by dialectic panel! Status: PENDING_HUMAN_APPROVAL. Run '/craft-rfc approve ${rfcId}' to sign off.`, "warning");
     },
   });
 
@@ -246,7 +254,8 @@ export function registerCommands(pi: ExtensionAPI): void {
   pi.registerCommand("craft-tdd", {
     description: "Enforce self-healing TDD RED/GREEN loop & mutation test validation (>=85%)",
     handler: async (_args: string, ctx: ExtensionContext) => {
-      const qEngine = new QualityGateEngine(ctx.cwd);
+      const cwd = ctx?.cwd || process.cwd();
+      const qEngine = new QualityGateEngine(cwd);
 
       const tdd = new TDDEngine();
       const res = tdd.runAutoTDDIterationLoop(
@@ -269,9 +278,9 @@ export function registerCommands(pi: ExtensionAPI): void {
 
       if (mutation.passedThreshold && res.passedCleanly) {
         qEngine.setPhase("MUTATION_TESTING");
-        ctx.ui.notify(`Self-healing TDD RED/GREEN loop verified & Mutation Testing achieved ${mutation.killRatePercent}% kill rate!`, "success");
+        notifyUser(ctx?.ui, `Self-healing TDD RED/GREEN loop verified & Mutation Testing achieved ${mutation.killRatePercent}% kill rate!`, "success");
       } else {
-        ctx.ui.notify(`TDD / Mutation testing failed threshold checks.`, "error");
+        notifyUser(ctx?.ui, `TDD / Mutation testing failed threshold checks.`, "error");
       }
     },
   });
@@ -280,7 +289,8 @@ export function registerCommands(pi: ExtensionAPI): void {
   pi.registerCommand("craft-review", {
     description: "Run static analysis diagnostics, Architectural Drift Guard, & 7-lens dialectic code review",
     handler: async (_args: string, ctx: ExtensionContext) => {
-      const qEngine = new QualityGateEngine(ctx.cwd);
+      const cwd = ctx?.cwd || process.cwd();
+      const qEngine = new QualityGateEngine(cwd);
       const state = qEngine.getState();
 
       const reviewer = new PostImplementationCodeReviewPanel();
@@ -291,9 +301,9 @@ export function registerCommands(pi: ExtensionAPI): void {
 
       if (result.passed) {
         qEngine.setPhase("GUIDED_HUMAN_SLICE_REVIEW");
-        ctx.ui.notify("CONGRATULATIONS! Post-implementation dialectic code review PASSED! Run '/craft-slice-review' to perform the guided human slice review walkthrough.", "success");
+        notifyUser(ctx?.ui, "CONGRATULATIONS! Post-implementation dialectic code review PASSED! Run '/craft-slice-review' to perform the guided human slice review walkthrough.", "success");
       } else {
-        ctx.ui.notify(`Code review REJECTED: ${result.summary}`, "error");
+        notifyUser(ctx?.ui, `Code review REJECTED: ${result.summary}`, "error");
       }
     },
   });
@@ -302,17 +312,18 @@ export function registerCommands(pi: ExtensionAPI): void {
   pi.registerCommand("craft-slice-review", {
     description: "Conduct interactive Guided Human Slice Review walkthrough & record human sign-off",
     handler: async (_args: string, ctx: ExtensionContext) => {
-      const qEngine = new QualityGateEngine(ctx.cwd);
+      const cwd = ctx?.cwd || process.cwd();
+      const qEngine = new QualityGateEngine(cwd);
       const state = qEngine.getState();
 
       if (!state.finalReview || !state.finalReview.passed) {
-        ctx.ui.notify("Error: Post-implementation code review must pass cleanly before conducting guided human slice review.", "error");
+        notifyUser(ctx?.ui, "Error: Post-implementation code review must pass cleanly before conducting guided human slice review.", "error");
         return;
       }
 
-      const reviewerName = await ctx.ui.ask("Enter Human Reviewer Name/ID:");
-      const approved = await ctx.ui.confirm(`Approve and lock slice '${state.sliceName}' after guided review walkthrough?`);
-      const notes = await ctx.ui.ask("Enter Reviewer Sign-off Notes / Feedback:");
+      const reviewerName = await promptInput(ctx?.ui, "Enter Human Reviewer Name/ID:");
+      const approved = await promptConfirm(ctx?.ui, "Human Slice Review Sign-off", `Approve and lock slice '${state.sliceName}' after guided review walkthrough?`);
+      const notes = await promptInput(ctx?.ui, "Enter Reviewer Sign-off Notes / Feedback:");
 
       const record = {
         sliceName: state.sliceName,
@@ -334,9 +345,9 @@ export function registerCommands(pi: ExtensionAPI): void {
 
       if (approved) {
         qEngine.setPhase("COMPLETED_LOCKED");
-        ctx.ui.notify(`Slice '${state.sliceName}' APPROVED and LOCKED by ${reviewerName}! All craftsmanship quality gates completed.`, "success");
+        notifyUser(ctx?.ui, `Slice '${state.sliceName}' APPROVED and LOCKED by ${reviewerName}! All craftsmanship quality gates completed.`, "success");
       } else {
-        ctx.ui.notify(`Slice review rejected by ${reviewerName}. Notes: ${notes}`, "warning");
+        notifyUser(ctx?.ui, `Slice review rejected by ${reviewerName}. Notes: ${notes}`, "warning");
       }
     },
   });

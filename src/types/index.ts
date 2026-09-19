@@ -227,8 +227,10 @@ export interface QualityGateState {
 
 export interface ExtensionUI {
   notify(message: string, type?: "info" | "success" | "warning" | "error"): void;
-  confirm(prompt: string): Promise<boolean>;
-  ask(prompt: string): Promise<string>;
+  confirm(title: string, message?: string): Promise<boolean>;
+  input?(title: string, placeholder?: string): Promise<string | undefined>;
+  ask?(prompt: string): Promise<string>;
+  select?(title: string, options: string[]): Promise<string | undefined>;
 }
 
 export interface ExtensionContext {
