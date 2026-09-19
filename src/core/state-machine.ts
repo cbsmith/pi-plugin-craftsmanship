@@ -6,8 +6,9 @@ export class QualityGateEngine {
   private stateFilePath: string;
   private state: QualityGateState;
 
-  constructor(projectRoot: string) {
-    const craftDir = path.join(projectRoot, ".craftsmanship");
+  constructor(projectRoot: string = process.cwd()) {
+    const root = projectRoot || process.cwd();
+    const craftDir = path.join(root, ".craftsmanship");
     if (!fs.existsSync(craftDir)) {
       fs.mkdirSync(craftDir, { recursive: true });
     }

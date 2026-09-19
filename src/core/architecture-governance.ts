@@ -5,8 +5,8 @@ import { ADRRecord, DialecticObjection, DialecticReviewResult, RFCRecord } from 
 export class ArchitectureGovernanceEngine {
   private projectRoot: string;
 
-  constructor(projectRoot: string) {
-    this.projectRoot = projectRoot;
+  constructor(projectRoot: string = process.cwd()) {
+    this.projectRoot = projectRoot || process.cwd();
   }
 
   /**

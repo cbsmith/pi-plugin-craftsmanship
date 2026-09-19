@@ -241,7 +241,13 @@ export interface ToolDefinition<T = any> {
   label?: string;
   description: string;
   parameters: T;
-  execute: (toolCallId: string, params: any, ctx: ExtensionContext) => Promise<{ content: Array<{ type: string; text: string }> }>;
+  execute: (
+    toolCallId: string,
+    params: any,
+    signal?: any,
+    onUpdate?: any,
+    ctx?: ExtensionContext
+  ) => Promise<{ content: Array<{ type: string; text: string }> }>;
 }
 
 export interface CommandDefinition {

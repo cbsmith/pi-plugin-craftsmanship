@@ -182,4 +182,56 @@ describe("Pi Craftsmanship Plugin Low-Risk Exemption Engine & Hard Gates", () =>
     expect(qEngine.getState().currentPhase).toBe("COMPLETED_LOCKED");
     expect(qEngine.getState().humanSliceReview?.approved).toBe(true);
   });
+
+  it("9. Pi Tool Execution Signature: handles 5-parameter execution with signal/undefined context gracefully", async () => {
+    const { registerTools } = await import("../src/tools");
+    const registeredTools: Record<string, any> = {};
+
+    const mockPi = {
+      registerTool: (tool: any) => {
+        registeredTools[tool.name] = tool;
+      },
+      registerCommand: () => {},
+      on: () => {},
+    };
+
+    registerTools(mockPi as any);
+
+    expect(registeredTools["craft_check_gate"]).toBeDefined();
+    expect(registeredTools["craft_analyze_requirements"]).toBeDefined();
+
+    // Simulate Pi calling tool.execute with (toolCallId, params, signal, onUpdate, ctx)
+    const mockSignal = new AbortController().signal; // Pi passes signal as 3rd arg
+    const mockOnUpdate = () => {};
+
+    // 1. Check craft_check_gate with Pi 5-argument signature
+    const gateRes = await registeredTools["craft_check_gate"].execute(
+      "call-123",
+      {},
+      mockSignal,
+      mockOnUpdate,
+      { cwd: testProjectDir, ui: { notify: () => {}, confirm: async () => true, ask: async () => "" } }
+    );
+    expect(gateRes.content[0].text).toContain("Current Workflow Phase");
+
+    // 2. Check craft_check_gate with undefined ctx (defensive fallback)
+    const gateResNoCtx = await registeredTools["craft_check_gate"].execute(
+      "call-124",
+      {},
+      mockSignal,
+      mockOnUpdate,
+      undefined
+    );
+    expect(gateResNoCtx.content[0].text).toContain("Current Workflow Phase");
+
+    // 3. Check craft_analyze_requirements with Pi 5-argument signature
+    const reqRes = await registeredTools["craft_analyze_requirements"].execute(
+      "call-125",
+      { featureName: "TestFeature", userStory: "As a user...", acceptanceCriteria: ["AC 1"] },
+      mockSignal,
+      mockOnUpdate,
+      { cwd: testProjectDir, ui: { notify: () => {}, confirm: async () => true, ask: async () => "" } }
+    );
+    expect(reqRes.content[0].text).toContain("BDD Feature spec generated");
+  });
 });

@@ -5,8 +5,8 @@ import { ArchitecturalDriftReport, C4DiagramSpec, FormalCompletenessEvaluation, 
 export class SystemDesignEngine {
   private projectRoot: string;
 
-  constructor(projectRoot: string) {
-    this.projectRoot = projectRoot;
+  constructor(projectRoot: string = process.cwd()) {
+    this.projectRoot = projectRoot || process.cwd();
   }
 
   /**

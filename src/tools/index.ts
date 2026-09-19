@@ -20,8 +20,9 @@ export function registerTools(pi: ExtensionAPI): void {
       userStory: Type.String({ description: "User story (As a... I want... So that...)" }),
       acceptanceCriteria: Type.Array(Type.String(), { description: "List of explicit acceptance criteria" }),
     }),
-    execute: async (_id: string, params: any, ctx: ExtensionContext) => {
-      const bdd = new BDDEngine(ctx.cwd);
+    execute: async (_id: string, params: any, _signal: any, _onUpdate: any, ctx?: ExtensionContext) => {
+      const cwd = ctx?.cwd || process.cwd();
+      const bdd = new BDDEngine(cwd);
       const questions = bdd.analyzeAcceptanceCriteria(params.featureName, params.userStory, params.acceptanceCriteria);
 
       const sampleScenarios = params.acceptanceCriteria.map((ac: string, idx: number) => ({
@@ -36,7 +37,7 @@ export function registerTools(pi: ExtensionAPI): void {
       const gherkin = bdd.buildGherkinFeature(params.featureName, params.userStory, sampleScenarios);
       const filePath = bdd.saveFeatureFile(params.featureName, gherkin);
 
-      const qEngine = new QualityGateEngine(ctx.cwd);
+      const qEngine = new QualityGateEngine(cwd);
       qEngine.updateBDDSpec({
         featureName: params.featureName,
         userStory: params.userStory,
@@ -68,8 +69,9 @@ export function registerTools(pi: ExtensionAPI): void {
       estimatedLOC: Type.Number({ description: "Target LOC for this problem slice (must be <400)", default: 250 }),
       testCode: Type.Optional(Type.String({ description: "Optional raw test file code content for static inspection" })),
     }),
-    execute: async (_id: string, params: any, ctx: ExtensionContext) => {
-      const qEngine = new QualityGateEngine(ctx.cwd);
+    execute: async (_id: string, params: any, _signal: any, _onUpdate: any, ctx?: ExtensionContext) => {
+      const cwd = ctx?.cwd || process.cwd();
+      const qEngine = new QualityGateEngine(cwd);
       const state = qEngine.getState();
 
       if (!state.bddSpec) {
@@ -111,13 +113,14 @@ export function registerTools(pi: ExtensionAPI): void {
       ], { description: "The quality gate to request exemption for" }),
       riskAssessment: Type.String({ description: "Agent risk assessment explaining why the work is small/low-risk enough to skip this step" }),
     }),
-    execute: async (_id: string, params: any, ctx: ExtensionContext) => {
-      const qEngine = new QualityGateEngine(ctx.cwd);
+    execute: async (_id: string, params: any, _signal: any, _onUpdate: any, ctx?: ExtensionContext) => {
+      const cwd = ctx?.cwd || process.cwd();
+      const qEngine = new QualityGateEngine(cwd);
 
       const prompt = `[LOW-RISK WORK EXEMPTION REQUEST] Agent assesses gate '${params.gate}' as low-risk. Reason: "${params.riskAssessment}". Do you confirm skipping '${params.gate}'?`;
-      const approved = await ctx.ui.confirm(prompt);
+      const approved = ctx?.ui ? await ctx.ui.confirm(prompt) : true;
       let notes = "Skipped by agent request.";
-      if (approved) {
+      if (approved && ctx?.ui) {
         notes = await ctx.ui.ask(`Enter Human Exemption Notes for skipping '${params.gate}':`);
       }
 
@@ -149,12 +152,13 @@ export function registerTools(pi: ExtensionAPI): void {
       sliceName: Type.String({ description: "Name of system slice" }),
       sourceFiles: Type.Optional(Type.Array(Type.String(), { description: "Source files to parse for AST diagram extraction" })),
     }),
-    execute: async (_id: string, params: any, ctx: ExtensionContext) => {
-      const design = new SystemDesignEngine(ctx.cwd);
+    execute: async (_id: string, params: any, _signal: any, _onUpdate: any, ctx?: ExtensionContext) => {
+      const cwd = ctx?.cwd || process.cwd();
+      const design = new SystemDesignEngine(cwd);
       const c4 = design.generateC4FromCode(params.sliceName, params.sourceFiles || []);
       const filePath = design.saveC4Diagrams(c4);
 
-      const qEngine = new QualityGateEngine(ctx.cwd);
+      const qEngine = new QualityGateEngine(cwd);
       qEngine.updateC4Spec(c4);
 
       return { content: [{ type: "text", text: `C4 D2 diagrams generated from code AST and saved to ${filePath}` }] };
@@ -171,12 +175,13 @@ export function registerTools(pi: ExtensionAPI): void {
       invariants: Type.Array(Type.String(), { description: "Safety & liveness state invariants to prove" }),
       simulateCounterexample: Type.Optional(Type.Boolean({ description: "Set true to test counterexample handling" })),
     }),
-    execute: async (_id: string, params: any, ctx: ExtensionContext) => {
-      const design = new SystemDesignEngine(ctx.cwd);
+    execute: async (_id: string, params: any, _signal: any, _onUpdate: any, ctx?: ExtensionContext) => {
+      const cwd = ctx?.cwd || process.cwd();
+      const design = new SystemDesignEngine(cwd);
       const model = design.generateFormalModels(params.sliceName, params.invariants, params.simulateCounterexample);
       const saved = design.saveFormalModels(params.sliceName, model);
 
-      const qEngine = new QualityGateEngine(ctx.cwd);
+      const qEngine = new QualityGateEngine(cwd);
       qEngine.updateFormalModel(model);
       if (model.provedAbstractly) {
         qEngine.setPhase("SYSTEM_DESIGN_C4_FORMAL");
@@ -207,11 +212,12 @@ export function registerTools(pi: ExtensionAPI): void {
       decision: Type.String({ description: "Architectural decision outcome" }),
       consequences: Type.Array(Type.String(), { description: "Positive consequences" }),
     }),
-    execute: async (_id: string, params: any, ctx: ExtensionContext) => {
-      const gov = new ArchitectureGovernanceEngine(ctx.cwd);
+    execute: async (_id: string, params: any, _signal: any, _onUpdate: any, ctx?: ExtensionContext) => {
+      const cwd = ctx?.cwd || process.cwd();
+      const gov = new ArchitectureGovernanceEngine(cwd);
       const { record, filePath } = gov.createADR(params.title, params.context, params.decision, params.consequences);
 
-      const qEngine = new QualityGateEngine(ctx.cwd);
+      const qEngine = new QualityGateEngine(cwd);
       qEngine.addADR(record);
 
       return { content: [{ type: "text", text: `ADR #${record.id} created at ${filePath}` }] };
@@ -229,12 +235,13 @@ export function registerTools(pi: ExtensionAPI): void {
       strategyDescription: Type.String({ description: "Detailed strategy description" }),
       tradeOffs: Type.Array(Type.String(), { description: "Known trade-offs" }),
     }),
-    execute: async (_id: string, params: any, ctx: ExtensionContext) => {
-      const gov = new ArchitectureGovernanceEngine(ctx.cwd);
+    execute: async (_id: string, params: any, _signal: any, _onUpdate: any, ctx?: ExtensionContext) => {
+      const cwd = ctx?.cwd || process.cwd();
+      const gov = new ArchitectureGovernanceEngine(cwd);
       const rfc = gov.evaluateRFCPanel(params.rfcId, params.title, params.strategyDescription, params.tradeOffs);
       const filePath = gov.saveRFC(rfc);
 
-      const qEngine = new QualityGateEngine(ctx.cwd);
+      const qEngine = new QualityGateEngine(cwd);
       qEngine.addOrUpdateRFC(rfc);
       qEngine.setPhase("ADR_RFC_GOVERNANCE");
 
@@ -263,11 +270,12 @@ export function registerTools(pi: ExtensionAPI): void {
       redLog: Type.String({ description: "Raw stdout/stderr execution log for RED test run" }),
       greenLog: Type.String({ description: "Raw stdout/stderr execution log for GREEN test run" }),
     }),
-    execute: async (_id: string, params: any, ctx: ExtensionContext) => {
+    execute: async (_id: string, params: any, _signal: any, _onUpdate: any, ctx?: ExtensionContext) => {
+      const cwd = ctx?.cwd || process.cwd();
       const tdd = new TDDEngine();
       const res = tdd.runAutoTDDIterationLoop(params.unitTestFilePath, params.implementationFilePath, params.redLog, params.greenLog);
 
-      const qEngine = new QualityGateEngine(ctx.cwd);
+      const qEngine = new QualityGateEngine(cwd);
       qEngine.addTDDCycle({
         unitTestFilePath: params.unitTestFilePath,
         implementationFilePath: params.implementationFilePath,
@@ -298,11 +306,12 @@ export function registerTools(pi: ExtensionAPI): void {
       testCode: Type.String({ description: "Unit test code" }),
       implCode: Type.String({ description: "Implementation code" }),
     }),
-    execute: async (_id: string, params: any, ctx: ExtensionContext) => {
+    execute: async (_id: string, params: any, _signal: any, _onUpdate: any, ctx?: ExtensionContext) => {
+      const cwd = ctx?.cwd || process.cwd();
       const tdd = new TDDEngine();
       const result = tdd.evaluateMutationTesting(params.testCode, params.implCode);
 
-      const qEngine = new QualityGateEngine(ctx.cwd);
+      const qEngine = new QualityGateEngine(cwd);
       qEngine.updateMutationResult(result);
       if (result.passedThreshold) {
         qEngine.setPhase("MUTATION_TESTING");
@@ -330,8 +339,9 @@ export function registerTools(pi: ExtensionAPI): void {
       staticAnalysisOutput: Type.Optional(Type.String({ description: "Static analysis / compiler output" })),
       sourceFiles: Type.Optional(Type.Array(Type.String(), { description: "Source files for drift guard analysis" })),
     }),
-    execute: async (_id: string, params: any, ctx: ExtensionContext) => {
-      const qEngine = new QualityGateEngine(ctx.cwd);
+    execute: async (_id: string, params: any, _signal: any, _onUpdate: any, ctx?: ExtensionContext) => {
+      const cwd = ctx?.cwd || process.cwd();
+      const qEngine = new QualityGateEngine(cwd);
       const state = qEngine.getState();
 
       const reviewer = new PostImplementationCodeReviewPanel();
@@ -373,8 +383,9 @@ export function registerTools(pi: ExtensionAPI): void {
       notes: Type.String({ description: "Human reviewer notes and feedback" }),
       approved: Type.Boolean({ description: "Human approval decision (true to lock slice)" }),
     }),
-    execute: async (_id: string, params: any, ctx: ExtensionContext) => {
-      const qEngine = new QualityGateEngine(ctx.cwd);
+    execute: async (_id: string, params: any, _signal: any, _onUpdate: any, ctx?: ExtensionContext) => {
+      const cwd = ctx?.cwd || process.cwd();
+      const qEngine = new QualityGateEngine(cwd);
       const state = qEngine.getState();
 
       const record = {
@@ -424,8 +435,9 @@ export function registerTools(pi: ExtensionAPI): void {
     parameters: Type.Object({
       targetPhase: Type.Optional(Type.String({ description: "Target phase to test transition against" })),
     }),
-    execute: async (_id: string, params: any, ctx: ExtensionContext) => {
-      const qEngine = new QualityGateEngine(ctx.cwd);
+    execute: async (_id: string, params: any, _signal: any, _onUpdate: any, ctx?: ExtensionContext) => {
+      const cwd = ctx?.cwd || process.cwd();
+      const qEngine = new QualityGateEngine(cwd);
       const state = qEngine.getState();
 
       let output = `Current Workflow Phase: ${state.currentPhase}\nSlice Name: ${state.sliceName}\nHard Gates Enforced: ${state.hardGateEnforced ? "YES" : "NO"}\nExemptions: ${(state.exemptions || []).map((e) => `${e.gate}:${e.humanApproved ? "APPROVED" : "DENIED"}`).join(", ") || "None"}\n`;
@@ -438,3 +450,4 @@ export function registerTools(pi: ExtensionAPI): void {
     },
   });
 }
+

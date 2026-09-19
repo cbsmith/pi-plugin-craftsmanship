@@ -5,8 +5,8 @@ import { BDDFeatureSpec, ClarifyingQuestion, GherkinScenario } from "../types";
 export class BDDEngine {
   private projectRoot: string;
 
-  constructor(projectRoot: string) {
-    this.projectRoot = projectRoot;
+  constructor(projectRoot: string = process.cwd()) {
+    this.projectRoot = projectRoot || process.cwd();
   }
 
   /**
