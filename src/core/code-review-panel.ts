@@ -9,12 +9,18 @@ export class PostImplementationCodeReviewPanel {
     staticAnalysisOutput?: string,
     sourceFiles: string[] = []
   ): FinalCodeReviewResult {
-    // 1. Static Analysis Diagnostics
+    // 1. Static Analysis Diagnostics & Strict Type Analysis
+    const anyMatches = (codeContent.match(/:\s*any\b|as\s+any\b|<any>|:\s*Any\b|->\s*Any\b/g) || []).length;
+    const untypedPyDefs = (codeContent.match(/def\s+[a-zA-Z_]\w*\s*\([^)]*\)\s*:/g) || []).length;
+    const untypedTsDefs = (codeContent.match(/(export\s+)?(async\s+)?function\s+[a-zA-Z_]\w*\s*\([^):]*\)\s*\{/g) || []).length;
+
     const staticAnalysis: StaticAnalysisDiagnostics = {
       lintErrors: 0,
       lintWarnings: 0,
       typeErrors: 0,
       securityIssues: 0,
+      anyTypeUsages: anyMatches,
+      untypedFunctions: untypedPyDefs + untypedTsDefs,
       toolOutputs: {
         compiler: staticAnalysisOutput || "Typecheck & Lint passed cleanly.",
       },
@@ -36,7 +42,7 @@ export class PostImplementationCodeReviewPanel {
     const design = new SystemDesignEngine(process.cwd());
     const driftReport: ArchitecturalDriftReport = design.verifyArchitecturalDrift(state.sliceName || "CoreSystem", sourceFiles, state);
 
-    // 3. Dialectic Review Objections (7 Lenses)
+    // 3. Dialectic Review Objections (8 Lenses)
     const objections: DialecticObjection[] = [];
 
     // Lens 1: Security
@@ -130,8 +136,7 @@ export class PostImplementationCodeReviewPanel {
       });
     }
 
-    // Lens 6: Elegance / Separation of Concerns
-    // Lens 7: Consistency
+    // Lens 6: Consistency & Compiler Diagnostics
     if (staticAnalysis.typeErrors > 0 || staticAnalysis.lintErrors > 0) {
       objections.push({
         id: "REV-OBJ-CONS-01",
@@ -140,6 +145,43 @@ export class PostImplementationCodeReviewPanel {
         title: "Static Analysis Linter / Type Errors",
         critique: `Detected ${staticAnalysis.typeErrors} type error(s) and ${staticAnalysis.lintErrors} lint error(s).`,
         requiredAction: "Fix compiler type errors and linter diagnostic warnings.",
+        addressed: false,
+      });
+    }
+
+    // Lens 8: Strict Type Hinting & Type Safety (Python & TypeScript)
+    if (anyMatches > 0) {
+      objections.push({
+        id: "REV-OBJ-TYPE-01",
+        lens: "Strict Type Hinting",
+        severity: "BLOCKER",
+        title: "Unconstrained Dynamic Type Usage ('any' / 'Any') Detected",
+        critique: `Found ${anyMatches} instance(s) of unconstrained dynamic type casting ('any' / 'Any'), defeating static type safety and contract verification.`,
+        requiredAction: "Replace dynamic 'any' / 'Any' annotations with strict, explicit interfaces, types, or generics.",
+        addressed: false,
+      });
+    }
+
+    if (untypedPyDefs > 0) {
+      objections.push({
+        id: "REV-OBJ-TYPE-02",
+        lens: "Strict Type Hinting",
+        severity: "BLOCKER",
+        title: "Missing Python Function Type Hints",
+        critique: `Detected ${untypedPyDefs} Python function definition(s) lacking explicit return type annotations ('-> Type').`,
+        requiredAction: "Add explicit type hints for all parameters and return types (e.g. def foo(param: str) -> None:).",
+        addressed: false,
+      });
+    }
+
+    if (untypedTsDefs > 0) {
+      objections.push({
+        id: "REV-OBJ-TYPE-03",
+        lens: "Strict Type Hinting",
+        severity: "MAJOR",
+        title: "Missing TypeScript Function Return Type Annotation",
+        critique: `Detected ${untypedTsDefs} function(s) lacking explicit return type annotations.`,
+        requiredAction: "Add explicit return type annotations to all functions (e.g., export function foo(): Promise<void>).",
         addressed: false,
       });
     }
@@ -153,7 +195,7 @@ export class PostImplementationCodeReviewPanel {
       passed,
       objections,
       summary: passed
-        ? "DIALECTIC POST-IMPLEMENTATION CODE REVIEW PASSED: All 7 lenses & static analysis clean! Ready for GUIDED HUMAN SLICE REVIEW walkthrough."
+        ? "DIALECTIC POST-IMPLEMENTATION CODE REVIEW PASSED: All 8 lenses & strict type hinting clean! Ready for GUIDED HUMAN SLICE REVIEW walkthrough."
         : `DIALECTIC CODE REVIEW REJECTED: Found ${blockerCount} BLOCKER objection(s) and ${majorCount} MAJOR objection(s).`,
       reReviewRequired: !passed,
       iterationCount: 1,
